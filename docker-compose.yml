@@ -1,40 +1,16 @@
 services:
-  # gluetun:
-  #   image: qmcgaw/gluetun:latest
-  #   container_name: gluetun
-  #   cap_add:
-  #     - NET_ADMIN
-  #   devices:
-  #     - /dev/net/tun:/dev/net/tun
-  #   environment:
-  #     - VPN_SERVICE_PROVIDER=
-  #     - VPN_TYPE=
-  #     # OpenVPN
-  #     - OPENVPN_USER=
-  #     - OPENVPN_PASSWORD=
-  #     # Wireguard
-  #     - WIREGUARD_PRIVATE_KEY=
-  #     - WIREGUARD_ADDRESS=
-  #     - WIREGUARD_PUBLIC_KEY=
-  #     - TZ=Asia/Kolkata
-  #     - UPDATER_PERIOD=24h
-  #   ports:
-  #     - "8080:8080"
-  #     - "8081:8081"
-  #   restart: on-failure
-
-  warp:
-    image: caomingjun/warp
+  microwarp:
+    image: ghcr.io/ccbkkb/microwarp:latest
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
-    environment:
-      - WARP_SLEEP=2
+      - SYS_MODULE
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv6.conf.all.disable_ipv6=0
     ports:
       - "8080:8080"
+    volumes:
+      - warp-data:/etc/wireguard
 
   app:
     build: .
@@ -48,4 +24,7 @@ services:
       - ./config.py:/usr/src/app/config.py:ro
       - ./accounts:/usr/src/app/accounts
       - ./downloads:/usr/src/app/downloads
-    network_mode: "service:warp"
+    network_mode: "service:microwarp"
+
+volumes:
+  warp-data:
