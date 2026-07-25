@@ -156,10 +156,6 @@ try:
 except Exception as e:
     LOGGER.error(f"restart_notification error: {e}")
 
-from .helper.ext_utils.tunnel_monitor import start_tunnel_monitor
-
-start_tunnel_monitor()
-
 from .core.plugin_manager import get_plugin_manager
 from .modules.plugin_manager import register_plugin_commands
 

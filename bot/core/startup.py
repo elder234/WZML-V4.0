@@ -440,7 +440,3 @@ async def load_configurations():
         base_url = Config.BASE_URL
         if base_url:
             bot_loop.create_task(_keepalive_loop(base_url))
-
-    from ..helper.ext_utils.tunnel_monitor import apply_tunnel_url_once
-
-    await apply_tunnel_url_once()
