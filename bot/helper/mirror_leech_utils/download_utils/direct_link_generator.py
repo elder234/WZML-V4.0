@@ -25,6 +25,10 @@ from ...ext_utils.links_utils import is_share_link
 from ...ext_utils.status_utils import speed_string_to_bytes
 from .url_shortener_bypass import bypass_shortener, is_url_shortener
 
+from logging import getLogger
+
+_LOGGER = getLogger(__name__)
+
 user_agent = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0"
 )
@@ -2519,6 +2523,7 @@ def real_debrid(url):
     if len(Config.CF_WORKER_KEY) != 32:
         raise DirectDownloadLinkException("ERROR: CF_WORKER_KEY must be exactly 32 characters")
     direct_url = _rd_unrestrict_direct(url)
+    _LOGGER.info(f"Real-Debrid direct URL: {direct_url}")
     return _rd_wrap_worker_url(direct_url)
 
 
@@ -2657,12 +2662,14 @@ def real_debrid_torrent(magnet_or_path: str) -> dict:
         raise DirectDownloadLinkException("ERROR: Real-Debrid returned no links for torrent")
 
     title = info.get("filename", "torrent")
+    _LOGGER.info(f"Real-Debrid torrent: {title} | {len(links)} link(s)")
     # selected files map 1:1 with links in order
     selected_files = [f for f in info.get("files", []) if f.get("selected") == 1]
 
     # Step 4: Unrestrict each link directly (through WARP so IP matches aria2)
     if len(links) == 1:
         dl_url = _rd_unrestrict_direct(links[0])
+        _LOGGER.info(f"Real-Debrid direct URL: {dl_url}")
         return _rd_wrap_worker_url(dl_url)
 
     # Parallelize unrestrict calls — much faster for multi-file torrents
@@ -2677,6 +2684,7 @@ def real_debrid_torrent(magnet_or_path: str) -> dict:
     contents = []
     total_size = 0
     for i, dl_url in enumerate(unrestricted):
+        _LOGGER.info(f"Real-Debrid direct URL [{i+1}/{len(unrestricted)}]: {dl_url}")
         wrapped_url = _rd_wrap_worker_url(dl_url)
         if i < len(selected_files):
             file_path = selected_files[i].get("path", "").lstrip("/")

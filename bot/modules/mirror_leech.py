@@ -447,9 +447,11 @@ class Mirror(TaskListener):
                 await delete_links(self.message)
                 return
             if isinstance(result, dict):
+                LOGGER.info(f"Real-Debrid torrent: {result.get('title', 'N/A')} | {len(result.get('contents', []))} file(s)")
                 self.link = result
                 await add_direct_download(self, path)
             else:
+                LOGGER.info(f"Real-Debrid link: {result}")
                 self.link = result
                 await add_aria2_download(self, path, headers, ratio, seed_time)
         else:
