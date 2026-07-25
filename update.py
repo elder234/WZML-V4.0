@@ -106,10 +106,10 @@ def _fetch_config_from_db(config_file, db_part):
     if old_config is not None and old_config != config_file:
         merged = dict(config_file)
         for k, v in db_config.items():
-            if k in old_config and config_file.get(k) is not None:
-                if old_config.get(k) == config_file.get(k):
+            if k in old_config and merged.get(k) is not None and merged.get(k) != "":
+                if old_config.get(k) == merged.get(k):
                     merged[k] = v
-            elif k not in merged or merged[k] is None:
+            elif k not in merged or merged[k] is None or merged[k] == "":
                 merged[k] = v
         config_file.clear()
         config_file.update(merged)
@@ -117,7 +117,9 @@ def _fetch_config_from_db(config_file, db_part):
     else:
         merged = dict(config_file)
         if db_config:
-            merged.update(db_config)
+            for k, v in db_config.items():
+                if k not in merged or merged[k] is None or merged[k] == "":
+                    merged[k] = v
         config_file.clear()
         config_file.update(merged)
         _LOGGER.info(
@@ -229,6 +231,9 @@ def main():
     _fetch_config_from_db(config_file, _db_partition_id(bot_token.split(":", 1)[0]))
     upstream_repo = config_file.get("UPSTREAM_REPO", "").strip()
     upstream_branch = config_file.get("UPSTREAM_BRANCH", "").strip() or "wzv3"
+    _LOGGER.info(f"UPSTREAM_REPO: '{upstream_repo}' | UPSTREAM_BRANCH: '{upstream_branch}'")
+    if not upstream_repo:
+        _LOGGER.warning("No UPSTREAM_REPO configured — skipping auto-update")
     _run_update(upstream_repo, upstream_branch, version)
     _cleanup()
     _update_packages()
