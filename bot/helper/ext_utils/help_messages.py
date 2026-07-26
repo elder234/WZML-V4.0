@@ -215,8 +215,8 @@ If DEFAULT_UPLOAD is `gd` then you can pass up: `rc` to upload to RCLONE_PATH.
 You can simply edit using owner/user config from usetting without adding mrcc: before the path"""
 
 name_swap = r"""<b>Name Substitution</b>: -ns
-/cmd link -ns script/code/s | mirror/leech | tea/ /s | clone | cpu/ | \[mltb\]/mltb | \\text\\/text/s
-This will affect on all files. Format: wordToReplace/wordToReplaceWith/sensitiveCase
+/cmd link -ns script:code:s | mirror:leech | tea: :s | clone: | cpu: | \[mltb\]:mltb | \\text\:text:s
+This will affect on all files. Format: wordToReplace:wordToReplaceWith:sensitiveCase
 Word Substitutions. You can add pattern instead of normal text. Timeout: 60 sec
 NOTE: You must add \ before any character, those are the characters: \^$.|?*+()[]{}-
 1. script will get replaced by code with sensitive case
