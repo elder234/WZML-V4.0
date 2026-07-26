@@ -208,7 +208,13 @@ class YoutubeDLHelper:
                 return
             if self._listener.is_cancelled:
                 return
-            async_to_sync(self._listener.on_download_complete)
+            try:
+                async_to_sync(self._listener.on_download_complete)
+            except Exception as e:
+                LOGGER.error("on_download_complete failed: %s", e, exc_info=True)
+                async_to_sync(
+                    self._listener.on_upload_error, f"on_download_complete failed: {e}"
+                )
         return
 
     async def add_download(self, path, qual, playlist, options):

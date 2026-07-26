@@ -369,6 +369,13 @@ async def _download_episode(session, ep, source):
     listener.mode = ("#ytdlp", "#Leech")
     listener._set_mode_engine()
 
+    LOGGER.info(
+        "AnimeTask init: mid=%s, dir=%s, name=%s, is_leech=%s, mode=%s, "
+        "up_dest=%s, user_id=%s",
+        listener.mid, listener.dir, listener.name,
+        listener.is_leech, listener.mode, listener.up_dest, listener.user_id,
+    )
+
     db_metadata = {
         "title": session.anime_title,
         "season": "",
@@ -396,9 +403,20 @@ async def _download_episode(session, ep, source):
 
     try:
         await listener.before_start()
-    except ValueError as e:
-        await listener.on_download_error(str(e))
+    except Exception as e:
+        LOGGER.error("before_start failed for EP%s: %s", ep.number, e)
+        try:
+            await listener.on_download_error(str(e))
+        except Exception:
+            pass
         return
+
+    LOGGER.info(
+        "After before_start: dir=%s, name=%s, up_dest=%s, "
+        "transmission_mode=%s, is_leech=%s",
+        listener.dir, listener.name, listener.up_dest,
+        listener.transmission_mode, listener.is_leech,
+    )
 
     path = f"{DOWNLOAD_DIR}{listener.mid}/"
 
@@ -417,6 +435,10 @@ async def _download_episode(session, ep, source):
 
     try:
         await ydl.add_download(path, "best", False, {})
+        LOGGER.info("add_download returned for EP%s", ep.number)
     except Exception as e:
         LOGGER.error("YT-DLP download failed for EP%s: %s", ep.number, e)
-        await listener.on_download_error(str(e))
+        try:
+            await listener.on_download_error(str(e))
+        except Exception:
+            pass
