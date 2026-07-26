@@ -401,11 +401,19 @@ async def get_user_settings(from_user, stype="main"):
 
         text = f"""⚙️ <b>User Settings</b>
 
-👤 {user_name}
-🆔 #{user_id}
-📛 @{from_user.username}
-🌐 DC {from_user.dc_id}
-🗣 {Language.get(lc).display_name() if (lc := from_user.language_code) else "N/A"}"""
+  👤 {user_name}
+  🆔 #{user_id}
+  📛 @{from_user.username}
+  🌐 DC {from_user.dc_id}
+  🗣 {Language.get(lc).display_name() if (lc := from_user.language_code) else "N/A"}
+
+┌ <b>Modes</b>
+├ General Settings
+├ Mirror Settings
+├ Leech Settings
+├ Uphoster Settings
+├ FF Media Settings
+┖ Misc Settings"""
 
         btns = buttons.build_menu(2)
 
@@ -441,13 +449,18 @@ async def get_user_settings(from_user, stype="main"):
         )
         btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>General Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>Default Upload Package</b> → <b>{du}</b>
-┠ <b>Default Usage Mode</b> → <b>{tr}'s</b> token/config
-┖ <b>YT Cookies Mode</b> → <b>{cookie_mode}</b>
-"""
+        text = f"""⌬ <b>General Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Upload</b>
+┖ Default Package → <b>{du}</b>
+
+┌ <b>Token</b>
+┖ Usage Mode → <b>{tr}'s</b> token/config
+
+┌ <b>Cookies</b>
+┖ YT Cookies Mode → <b>{cookie_mode}</b>"""
 
     elif stype == "leech":
         thumbpath = f"thumbnails/{user_id}.jpg"
@@ -548,20 +561,25 @@ async def get_user_settings(from_user, stype="main"):
         )
         btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>Leech Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ Leech Type → <b>{ltype}</b>
-┠ Leech Thumbnail → <b>{thumbmsg}</b>
-┠ Leech Split Size → <b>{get_readable_file_size(split_size)}</b>
-┠ Equal Splits → <b>{equal_splits}</b>
-┠ Media Group → <b>{media_group}</b>
-┠ Leech Prefix → <code>{escape(lprefix)}</code>
-┠ Leech Suffix → <code>{escape(lsuffix)}</code>
-┠ Leech Caption → <code>{escape(lcap)}</code>
-┠ Leech Destination → <code>{leech_dest}</code>
-┖ Thumbnail Layout → <b>{thumb_layout}</b>
-"""
+        text = f"""⌬ <b>Leech Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Upload</b>
+├ Type → <b>{ltype}</b>
+├ Split Size → <b>{get_readable_file_size(split_size)}</b>
+├ Equal Splits → <b>{equal_splits}</b>
+├ Media Group → <b>{media_group}</b>
+┖ Destination → <code>{leech_dest}</code>
+
+┌ <b>Naming</b>
+├ Prefix → <code>{escape(lprefix)}</code>
+├ Suffix → <code>{escape(lsuffix)}</code>
+┖ Caption → <code>{escape(lcap)}</code>
+
+┌ <b>Media</b>
+├ Thumbnail → <b>{thumbmsg}</b>
+┖ Layout → <b>{thumb_layout}</b>"""
 
     elif stype == "uphoster":
         uphoster_service = user_dict.get("UPHOSTER_SERVICE", "gofile")
@@ -580,10 +598,19 @@ async def get_user_settings(from_user, stype="main"):
         btns = buttons.build_menu(2)
 
         destinations = [s.capitalize() for s in uphoster_service.split(",")]
-        text = f"""⌬ <b>Uphoster Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┖ <b>Current Destination</b> → {", ".join(destinations)}"""
+        text = f"""⌬ <b>Uphoster Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Service</b>
+┖ Destination → <b>{", ".join(destinations)}</b>
+
+┌ <b>Services</b>
+├ Gofile
+├ BuzzHeavier
+├ PixelDrain
+├ DevUploads
+┖ VikingFile"""
 
     elif stype == "pixeldrain":
         buttons.data_button("PixelDrain Key", f"userset {user_id} menu PIXELDRAIN_KEY")
@@ -600,10 +627,12 @@ async def get_user_settings(from_user, stype="main"):
         else:
             pdtoken = "None"
 
-        text = f"""⌬ <b>PixelDrain Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┖ <b>PixelDrain Key</b> → <code>{pdtoken}</code>"""
+        text = f"""⌬ <b>PixelDrain Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Credentials</b>
+┖ API Key → <code>{pdtoken}</code>"""
 
     elif stype == "buzzheavier":
         buttons.data_button(
@@ -630,11 +659,13 @@ async def get_user_settings(from_user, stype="main"):
         else:
             bzfolder = "None"
 
-        text = f"""⌬ <b>BuzzHeavier Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>BuzzHeavier Token</b> → <code>{bztoken}</code>
-┖ <b>BuzzHeavier Folder ID</b> → <code>{bzfolder}</code>"""
+        text = f"""⌬ <b>BuzzHeavier Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Credentials</b>
+├ Token → <code>{bztoken}</code>
+┖ Folder ID → <code>{bzfolder}</code>"""
 
     elif stype == "devuploads":
         buttons.data_button(
@@ -655,11 +686,13 @@ async def get_user_settings(from_user, stype="main"):
             or Config.DEVUPLOADS_FOLDER
             or "None (Root)"
         )
-        text = f"""⌬ <b>DevUploads Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>DevUploads Key</b> → <code>{dukey}</code>
-┖ <b>DevUploads Folder ID</b> → <code>{dufolder}</code>"""
+        text = f"""⌬ <b>DevUploads Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Credentials</b>
+├ API Key → <code>{dukey}</code>
+┖ Folder ID → <code>{dufolder}</code>"""
 
     elif stype == "vikingfile":
         buttons.data_button(
@@ -680,11 +713,13 @@ async def get_user_settings(from_user, stype="main"):
             or Config.VIKINGFILE_FOLDER
             or "None (Root)"
         )
-        text = f"""⌬ <b>VikingFile Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>VikingFile Hash</b> → <code>{vfkey}</code>
-┖ <b>VikingFile Folder</b> → <code>{vffolder}</code>"""
+        text = f"""⌬ <b>VikingFile Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Credentials</b>
+├ Hash → <code>{vfkey}</code>
+┖ Folder → <code>{vffolder}</code>"""
 
     elif stype == "gofile":
         buttons.data_button("Gofile Token", f"userset {user_id} menu GOFILE_TOKEN")
@@ -721,12 +756,16 @@ async def get_user_settings(from_user, stype="main"):
         else:
             gffolder = "None (Uploads to Root)"
 
-        text = f"""⌬ <b>Gofile Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>Gofile Token</b> → <code>{gftoken}</code>
-┠ <b>Gofile Folder ID</b> → <code>{gffolder}</code>
-┖ <b>Auto-Create Folder</b> → <code>{"Enabled" if auto_create else "Disabled"}</code>"""
+        text = f"""⌬ <b>Gofile Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Credentials</b>
+├ Token → <code>{gftoken}</code>
+┖ Folder ID → <code>{gffolder}</code>
+
+┌ <b>Options</b>
+┖ Auto-Create Folder → <b>{"✓ Enabled" if auto_create else "✗ Disabled"}</b>"""
 
     elif stype == "rclone":
         buttons.data_button("Rclone Config", f"userset {user_id} menu RCLONE_CONFIG")
@@ -756,12 +795,14 @@ async def get_user_settings(from_user, stype="main"):
         else:
             rcflags = "None"
 
-        text = f"""⌬ <b>RClone Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>Rclone Config</b> → <b>{rccmsg}</b>
-┠ <b>Rclone Flags</b> → <code>{rcflags}</code>
-┖ <b>Rclone Path</b> → <code>{rccpath}</code>"""
+        text = f"""⌬ <b>RClone Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Config</b>
+├ Config File → <b>{rccmsg}</b>
+├ Default Path → <code>{rccpath}</code>
+┖ Flags → <code>{rcflags}</code>"""
 
     elif stype == "gdrive":
         buttons.data_button("Default Gdrive ID", f"userset {user_id} menu GDRIVE_ID")
@@ -823,16 +864,20 @@ async def get_user_settings(from_user, stype="main"):
         drive_cat_display = "\n   ".join(lines)
         btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>GDrive Tools Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>Gdrive ID</b> → <code>{gdrive_id}</code> <i>(Default)</i>
-┠ <b>Index URL</b> → <code>{index}</code> <i>(Default)</i>
-┠ <b>Stop Duplicate</b> → <b>{sd_msg}</b>
-┠ <b>GDrive token.pickle</b> → <b>{tokenmsg}</b>
-┠ <b>Drive Upload SA</b> → <code>{sa_display}</code>
-┠ <b>Drive Category</b> → <b>{dc_status}</b>
-┖ <b>Drive Categories:</b> 
+        text = f"""⌬ <b>GDrive Tools Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Drive</b>
+├ Gdrive ID → <code>{gdrive_id}</code>
+├ Index URL → <code>{index}</code>
+├ Stop Duplicate → <b>{sd_msg}</b>
+┖ Token → <b>{tokenmsg}</b>
+
+┌ <b>Service Account</b>
+├ Upload SA → <code>{sa_display}</code>
+├ Category → <b>{dc_status}</b>
+┖ Categories:
    {drive_cat_display}"""
     elif stype == "mirror":
         buttons.data_button("RClone Tools", f"userset {user_id} rclone")
@@ -878,11 +923,16 @@ async def get_user_settings(from_user, stype="main"):
         )
         btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>Mirror Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┖ <b>Bot Stop Duplicate</b> → <b>{sd_msg}</b>
-"""
+        text = f"""⌬ <b>Mirror Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Google Drive</b>
+├ Stop Duplicate → <b>{sd_msg}</b>
+└ Gdrive ID → <code>{gdrive_id}</code>
+
+┌ <b>Index</b>
+┖ Index URL → <code>{index}</code>"""
 
     elif stype == "mega":
         mega_email = user_dict.get("MEGA_EMAIL", "")
@@ -920,12 +970,16 @@ async def get_user_settings(from_user, stype="main"):
         email_display = mega_email or "Not Set"
         pass_display = masked_pass if mega_password else "Not Set"
         account_status = "✓ Configured" if has_creds else "❌ Not Configured"
-        text = f"""⌬ <b>Mega Tools :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>Mega Email</b> → <code>{email_display}</code>
-┠ <b>Mega Password</b> → <code>{pass_display}</code>
-┖ <b>Account</b> → {account_status}"""
+        text = f"""⌬ <b>Mega Tools</b>
+
+  👤 {user_name}
+
+┌ <b>Account</b>
+├ Email → <code>{email_display}</code>
+┖ Password → <code>{pass_display}</code>
+
+┌ <b>Status</b>
+┖ {account_status}"""
 
     elif stype == "ffset":
         buttons.data_button(
@@ -994,15 +1048,18 @@ async def get_user_settings(from_user, stype="main"):
         )
         btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>FF Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>FFmpeg CLI Commands</b> → {ffc}
-┃
-┠ <b>Default Metadata</b> → {display_meta_val}
-┠ <b>Audio Metadata</b> → {display_audio_meta}
-┠ <b>Video Metadata</b> → {display_video_meta}
-┖ <b>Subtitle Metadata</b> → {display_subtitle_meta}"""
+        text = f"""⌬ <b>FF Media Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Commands</b>
+┖ FFmpeg CLI → {ffc}
+
+┌ <b>Metadata</b>
+├ Default → {display_meta_val}
+├ Audio → {display_audio_meta}
+├ Video → {display_video_meta}
+┖ Subtitle → {display_subtitle_meta}"""
 
     elif stype == "advanced":
         buttons.data_button(
@@ -1067,18 +1124,23 @@ async def get_user_settings(from_user, stype="main"):
         )
         btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>Advanced Settings :</b>
-┌ <b>Name</b> → {user_name}
-┃
-├ <b>Auto Name Swaps</b> → {ns_msg}
-├ <b>Excluded Extensions</b> → <code>{ex_ex}</code>
-├ <b>Upload Paths</b> → <b>{upload_paths}</b>
-├ <b>YT-DLP Options</b> → <code>{ytopt}</code>
-├ <b>YT User Cookie File</b> → <b>{user_cookie_msg}</b>
-┃
-├ <b>Rename Uploader</b> → <code>{rn_uploader}</code>
-├ <b>Rename Template</b> → <code>{rn_template}</code>
-┖ <b>Rename</b> → <b>{rn_enabled_text}</b>"""
+        text = f"""⌬ <b>Misc Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Naming</b>
+├ Auto Name Swaps → {ns_msg}
+└ Excluded Extensions → <code>{ex_ex}</code>
+
+┌ <b>Downloads</b>
+├ YT-DLP Options → <code>{ytopt}</code>
+├ YT Cookie File → <b>{user_cookie_msg}</b>
+└ Upload Paths → <b>{upload_paths}</b>
+
+┌ <b>File Rename</b>
+├ Uploader → <code>{rn_uploader}</code>
+├ Template → <code>{rn_template}</code>
+┖ Enabled → <b>{rn_enabled_text}</b>"""
     elif stype == "yttools":
         buttons.data_button("YT Description", f"userset {user_id} menu YT_DESP")
         yt_desp_val = user_dict.get(
@@ -1122,13 +1184,17 @@ async def get_user_settings(from_user, stype="main"):
         )
         btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>YouTube Tools Settings:</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>YT Description</b> → <code>{escape(str(yt_desp_val))}</code>
-┠ <b>YT Tags</b> → <code>{escape(str(yt_tags_val))}</code>
-┠ <b>YT Category ID</b> → <code>{escape(str(yt_cat_id_val))}</code>
-┖ <b>YT Privacy Status</b> → <code>{escape(str(yt_privacy_val))}</code>"""
+        text = f"""⌬ <b>YouTube Tools Settings</b>
+
+  👤 {user_name}
+
+┌ <b>Content</b>
+├ Description → <code>{escape(str(yt_desp_val))}</code>
+└ Tags → <code>{escape(str(yt_tags_val))}</code>
+
+┌ <b>Upload</b>
+├ Category ID → <code>{escape(str(yt_cat_id_val))}</code>
+┖ Privacy → <code>{escape(str(yt_privacy_val))}</code>"""
 
     return text, btns
 

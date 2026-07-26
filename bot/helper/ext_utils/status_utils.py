@@ -231,7 +231,7 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
             tstatus = task.status()
         elapsed = time() - task.listener.message.date.timestamp()
 
-        msg += f"<b>{index + start_position}. {escape(f'{task.name()}')}</b>"
+        msg += f"\n<b>{index + start_position}. {escape(f'{task.name()}')}</b>"
         if task.listener.subname:
             msg += f"\n   <i>↳ {task.listener.subname}</i>"
 
@@ -269,8 +269,6 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
         else:
             msg += f"\n📦 {task.size()}"
 
-        msg += f"\n🔧 {task.engine}  •  {task.listener.mode[0]} → {task.listener.mode[1]}"
-
         _status_labels = {
             MirrorStatus.STATUS_DOWNLOAD: "⬇️ Downloading",
             MirrorStatus.STATUS_UPLOAD: "⬆️ Uploading",
@@ -290,10 +288,10 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
             MirrorStatus.STATUS_YT: "▶️ YouTube",
         }
         label = _status_labels.get(tstatus, f"⬇️ {tstatus}")
-        msg += f"\n📊 {label}"
 
         from ..telegram_helper.bot_commands import BotCommands
 
+        action_btns = ""
         if tstatus in [
             MirrorStatus.STATUS_DOWNLOAD,
             MirrorStatus.STATUS_PAUSED,
@@ -304,9 +302,11 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
                 or task.listener.is_qbit
                 or task.listener.is_nzb
             ):
-                msg += f"\n📂 /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}"
+                action_btns += f" 📂 /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}"
 
-        msg += f"\n❌ /{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}\n\n"
+        action_btns += f"  ❌ /{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}"
+        msg += f"\n🔧 {task.engine}  •  {task.listener.mode[0]} → {task.listener.mode[1]}  •  {label}"
+        msg += f"\n{action_btns}\n\n{'─' * 20}\n\n"
 
     if len(msg) == 0:
         if status == "All":
@@ -314,7 +314,7 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
         else:
             msg = f"No Active {status} Tasks!\n\n"
 
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n📊 <b>Bot Stats</b>"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━\n\n📊 <b>Bot Stats</b>"
     buttons = ButtonMaker()
     if not is_user:
         buttons.data_button(
@@ -338,6 +338,8 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
         "♻️ Refresh", f"status {sid} ref", position="header", style=ButtonStyle.PRIMARY
     )
     button = buttons.build_menu(8)
-    msg += f"\n⚙️ CPU {cpu_percent()}%  •  💿 {get_readable_file_size(disk_usage(DOWNLOAD_DIR).free)} free [{round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%]"
-    msg += f"\n💾 RAM {virtual_memory().percent}%  •  ⏱ {get_readable_time(time() - bot_start_time)}"
+    msg += f"\n⚙️ CPU → {cpu_percent()}%"
+    msg += f"\n💿 Disk → {get_readable_file_size(disk_usage(DOWNLOAD_DIR).free)} free [{round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%]"
+    msg += f"\n💾 RAM → {virtual_memory().percent}%"
+    msg += f"\n⏱ Uptime → {get_readable_time(time() - bot_start_time)}"
     return msg, button
