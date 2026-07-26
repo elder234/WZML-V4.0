@@ -199,66 +199,75 @@ class AniWatchScraper:
         url = f"{self._base}/wp-json/hianime/v1/episode/list/{anime_id}"
         data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
         if not data or not data.get("status") or not data.get("html"):
+            _LOGGER.warning("Episode list API returned no data for %s: %s", anime_id, data)
             return []
 
         html = data["html"]
         episodes = []
 
-        for match in finditer(
-            r'<a[^>]*data-id="(\d+)"[^>]*data-number="(\d+)"[^>]*>([^<]*)</a>',
-            html,
-        ):
-            ep_id = match.group(1)
-            number = int(match.group(2))
-            ep_text = match.group(3).strip()
-            filler = "filler" in ep_text.lower()
-            episodes.append(AnimeEpisode(ep_id, number, ep_text or f"EP{number:02d}", filler))
-
-        if not episodes:
-            for match in finditer(r'data-id="(\d+)"[^>]*>([^<]*EP\s*(\d+)[^<]*)<', html, 2):
-                ep_id = match.group(1)
-                ep_text = match.group(2).strip()
-                number = int(match.group(3))
+        for match in finditer(r'<a\s[^>]*?class="[^"]*ep-item[^"]*"[^>]*>', html):
+            tag = match.group(0)
+            id_match = search(r'data-id="(\d+)"', tag)
+            num_match = search(r'data-number="(\d+)"', tag)
+            title_match = search(r'title="([^"]+)"', tag)
+            if id_match and num_match:
+                ep_id = id_match.group(1)
+                number = int(num_match.group(1))
+                ep_text = title_match.group(1).strip() if title_match else f"EP{number:02d}"
                 filler = "filler" in ep_text.lower()
                 episodes.append(AnimeEpisode(ep_id, number, ep_text, filler))
 
         if not episodes:
-            for match in finditer(r'data-id="(\d+)"[^>]*data-number="(\d+)"', html):
+            for match in finditer(r'data-id="(\d+)"', html):
                 ep_id = match.group(1)
-                number = int(match.group(2))
-                episodes.append(AnimeEpisode(ep_id, number, f"EP{number:02d}"))
+                num_match = search(r'data-number="(\d+)"', html[match.start():match.end() + 200])
+                number = int(num_match.group(1)) if num_match else 0
+                if number:
+                    episodes.append(AnimeEpisode(ep_id, number, f"EP{number:02d}"))
 
         episodes.sort(key=lambda e: e.number)
+        _LOGGER.info("Found %d episodes for anime %s", len(episodes), anime_id)
         return episodes
 
     async def get_servers(self, episode_id):
         url = f"{self._base}/wp-json/hianime/v1/episode/servers/{episode_id}"
         data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
         if not data or not data.get("status") or not data.get("html"):
+            _LOGGER.warning("Episode servers API returned no data for %s: %s", episode_id, data)
             return []
 
         html = data["html"]
         servers = []
 
         for match in finditer(
-            r'data-server-name="([^"]+)"[^>]*data-hash="([^"]+)"', html
+            r'data-type="(\w+)"[^>]*data-server-name="([^"]+)"[^>]*data-hash="([^"]+)"', html
         ):
-            server_name = match.group(1)
-            embed_hash = match.group(2)
+            category = match.group(1)
+            server_name = match.group(2)
+            embed_hash = match.group(3)
             try:
                 embed_url = b64decode(embed_hash).decode("utf-8")
             except Exception:
                 continue
             servers.append(
-                {"category": "sub", "name": server_name, "embed_url": embed_url}
+                {"category": category, "name": server_name, "embed_url": embed_url}
             )
 
         if not servers:
-            for match in finditer(r'data-type="(\w+)"[^>]*data-id="(\d+)"', html):
+            for match in finditer(
+                r'data-server-name="([^"]+)"[^>]*data-hash="([^"]+)"', html
+            ):
+                server_name = match.group(1)
+                embed_hash = match.group(2)
+                try:
+                    embed_url = b64decode(embed_hash).decode("utf-8")
+                except Exception:
+                    continue
                 servers.append(
-                    {"category": match.group(1), "server_id": match.group(2), "embed_url": None}
+                    {"category": "sub", "name": server_name, "embed_url": embed_url}
                 )
 
+        _LOGGER.info("Found %d servers for episode %s", len(servers), episode_id)
         return servers
 
     async def get_streaming_source(self, embed_url):
@@ -363,36 +372,23 @@ class AniWatchScraper:
         if not servers:
             return None
 
-        if servers and servers[0].get("embed_url"):
-            for priority_name in _SERVER_PRIORITY:
-                for server in servers:
-                    if priority_name in server.get("name", "").lower():
-                        source = await self.get_streaming_source(server["embed_url"])
-                        if source:
-                            return source
-                        await sleep(0.5)
+        category_servers = [s for s in servers if s["category"] == category]
+        if not category_servers:
+            category_servers = servers
 
-            for server in servers:
-                source = await self.get_streaming_source(server["embed_url"])
-                if source:
-                    return source
-                await sleep(0.5)
-        else:
-            category_servers = [s for s in servers if s["category"] == category]
-            if not category_servers:
-                category_servers = servers
-
+        for priority_name in _SERVER_PRIORITY:
             for server in category_servers:
-                server_id = server.get("server_id")
-                if not server_id:
-                    continue
-                url = f"{self._base}/ajax/v2/episode/sources?id={server_id}"
-                data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
-                if data and "link" in data:
-                    source = await self.get_streaming_source(data["link"])
+                if priority_name in server.get("name", "").lower():
+                    source = await self.get_streaming_source(server["embed_url"])
                     if source:
                         return source
-                await sleep(0.5)
+                    await sleep(0.5)
+
+        for server in category_servers:
+            source = await self.get_streaming_source(server["embed_url"])
+            if source:
+                return source
+            await sleep(0.5)
 
         return None
 
