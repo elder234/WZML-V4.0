@@ -4,7 +4,7 @@ from os import path as ospath, walk
 from re import match as re_match, sub as re_sub
 from time import time
 
-from aioshutil import rmtree
+from aioshutil import move, rmtree
 from natsort import natsorted
 from pyrogram import StopTransmission
 from pyrogram.enums import ChatType
@@ -18,7 +18,6 @@ except ImportError:
 from aiofiles.os import (
     path as aiopath,
     remove,
-    rename,
 )
 from pyrogram.types import (
     InputMediaDocument,
@@ -148,6 +147,9 @@ class TelegramUploader:
             cap_file_ = name + lsuffix.replace(r"\s", " ") + ext
             lsuffix = re_sub(r"<.*?>", "", lsuffix).replace(r"\s", " ")
 
+        file_ = file_.lstrip("/")
+        cap_file_ = cap_file_.lstrip("/")
+
         cap_mono = (
             f"<{Config.LEECH_FONT}>{cap_file_}</{Config.LEECH_FONT}>"
             if Config.LEECH_FONT
@@ -218,7 +220,7 @@ class TelegramUploader:
         old_path = ospath.join(dirpath, pre_file_)
         new_path = ospath.join(dirpath, file_)
         if old_path != new_path:
-            await rename(old_path, new_path)
+            await move(old_path, new_path)
 
         return new_path, cap_mono
 
