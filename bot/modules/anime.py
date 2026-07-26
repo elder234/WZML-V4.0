@@ -14,6 +14,7 @@ from ..helper.ext_utils.task_manager import pre_task_check
 from ..helper.mirror_leech_utils.download_utils.anime_scraper import (
     AniWatchScraper,
     AnimeTokiScraper,
+    HianimeScraper,
     anilist_episode_info,
 )
 from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import YoutubeDLHelper
@@ -27,6 +28,7 @@ from ..helper.telegram_helper.message_utils import (
 
 _anime_scraper = AniWatchScraper()
 _animetoki_scraper = AnimeTokiScraper()
+_hianime_scraper = HianimeScraper()
 
 _user_sessions = {}
 
@@ -119,6 +121,8 @@ async def anime_callback(_, query, obj):
             try:
                 if obj.source == "animetoki":
                     obj.episodes = await _animetoki_scraper.get_episodes(result.slug)
+                elif obj.source == "hianime":
+                    obj.episodes = await _hianime_scraper.get_episodes(result.anime_id)
                 else:
                     details = await _anime_scraper.get_anime_details(result.slug)
                     if details and details.get("anime_id"):
@@ -256,6 +260,7 @@ async def anime_search(client, message):
     buttons = ButtonMaker()
     buttons.data_button("AnimeWatch (aniwatch.co.at)", f"anime src aniwatch")
     buttons.data_button("AnimeToki (animetoki.com)", f"anime src animetoki")
+    buttons.data_button("Hianime (hianime.ro)", f"anime src hianime")
     buttons.data_button("Cancel", "anime cancel", "footer")
 
     _user_sessions[user_id] = session
@@ -264,7 +269,8 @@ async def anime_search(client, message):
         message,
         f"**Select source for:** `{query}`\n\n"
         "**AnimeWatch** — MegaCloud/MegaPlay embeds, m3u8 streams\n"
-        "**AnimeToki** — Self-hosted, direct .mkv files, 1080p",
+        "**AnimeToki** — Self-hosted, direct .mkv files, 1080p\n"
+        "**Hianime** — MegaPlay/multiple embeds, m3u8 streams",
         buttons.build_menu(1),
     )
     session._reply_to = msg
@@ -290,6 +296,8 @@ async def _perform_search(session):
     try:
         if session.source == "animetoki":
             results = await _animetoki_scraper.search(query)
+        elif session.source == "hianime":
+            results = await _hianime_scraper.search(query)
         else:
             results = await _anime_scraper.search(query)
     except Exception as e:
@@ -335,6 +343,10 @@ async def _start_anime_download(session):
         try:
             if session.source == "animetoki":
                 source = await _animetoki_scraper.get_source(ep.ep_id)
+            elif session.source == "hianime":
+                source = await _hianime_scraper.get_episode_source(
+                    ep.ep_id, session.category
+                )
             else:
                 source = await _anime_scraper.get_episode_source(
                     ep.ep_id, session.category

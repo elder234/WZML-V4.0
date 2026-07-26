@@ -1114,3 +1114,368 @@ async def tmdb_season_info(tmdb_id, season):
         except Exception as e:
             _LOGGER.warning("TMDb season info failed: %s", e)
             return {}
+
+
+HIANIME_BASE = "https://hianime.ro"
+
+
+class HianimeScraper:
+    """Scraper for hianime.ro — WordPress with otakuthemes plugin."""
+
+    def __init__(self):
+        self._sm = SessionManager()
+        self._base = HIANIME_BASE
+
+    async def search(self, query):
+        url = f"{self._base}/?s={query}"
+        html = await self._sm.fetch(url, headers=_HEADERS)
+        if not html:
+            return []
+
+        results = []
+        for match in finditer(
+            r'<div\s+class="flw-item\s*">([\s\S]*?)</div>\s*<div\s+class="clearfix"',
+            html,
+        ):
+            block = match.group(1)
+
+            id_match = search(r'data-id="(\d+)"', block)
+            if not id_match:
+                continue
+            anime_id = id_match.group(1)
+
+            title_match = search(
+                r'class="dynamic-name"[^>]*>\s*([^<]+?)\s*</a>', block
+            )
+            title = title_match.group(1).strip() if title_match else ""
+
+            sub_match = search(r'tick-sub[^<]*<[^>]*></i>(\d+)', block)
+            dub_match = search(r'tick-dub[^<]*<[^>]*></i>(\d+)', block)
+            eps_match = search(r'tick-eps[^>]*>(\d+)', block)
+
+            sub = bool(sub_match)
+            dub = bool(dub_match)
+            total_eps = int(eps_match.group(1)) if eps_match else 0
+
+            slug = ""
+            slug_match = search(
+                r'href="https?://hianime\.ro/watch/([^"]+)"', block
+            )
+            if slug_match:
+                slug = slug_match.group(1).rsplit("-", 1)[0]
+
+            results.append(
+                AnimeSearchResult(
+                    title=title,
+                    slug=slug or anime_id,
+                    poster="",
+                    sub=sub,
+                    dub=dub,
+                    total_eps=total_eps,
+                    anime_id=anime_id,
+                )
+            )
+            if len(results) >= 10:
+                break
+
+        _LOGGER.info("Hianime search returned %d results", len(results))
+        return results
+
+    async def get_episodes(self, anime_id):
+        url = f"{self._base}/wp-json/v1/otakuthemes/episode/list/{anime_id}"
+        data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
+        if not data or not data.get("status") or not data.get("html"):
+            _LOGGER.warning("Hianime episode list failed for %s", anime_id)
+            return []
+
+        html = data["html"]
+        episodes = []
+
+        for match in finditer(
+            r'data-number="(\d+)"[^>]*data-id="(\d+)"', html
+        ):
+            number = int(match.group(1))
+            ep_id = match.group(2)
+            episodes.append(
+                AnimeEpisode(ep_id=ep_id, number=number, title=f"EP{number:02d}")
+            )
+
+        if not episodes:
+            for match in finditer(
+                r'data-id="(\d+)"[^>]*data-number="(\d+)"', html
+            ):
+                ep_id = match.group(1)
+                number = int(match.group(2))
+                episodes.append(
+                    AnimeEpisode(ep_id=ep_id, number=number, title=f"EP{number:02d}")
+                )
+
+        episodes.sort(key=lambda e: e.number)
+        _LOGGER.info("Found %d episodes for hianime %s", len(episodes), anime_id)
+        return episodes
+
+    async def get_episode_source(self, episode_id, category="sub"):
+        url = f"{self._base}/wp-json/v1/otakuthemes/episode/servers?episodeId={episode_id}"
+        data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
+        if not data or not data.get("status") or not data.get("html"):
+            _LOGGER.warning("Hianime servers failed for episode %s", episode_id)
+            return None
+
+        html = data["html"]
+        servers = []
+
+        for match in finditer(
+            r'data-type="(\w+)"[^>]*data-server-name="([^"]+)"[^>]*data-hash="([^"]+)"',
+            html,
+        ):
+            category_type = match.group(1)
+            server_name = match.group(2)
+            embed_hash = match.group(3)
+            try:
+                embed_url = b64decode(embed_hash).decode("utf-8")
+            except Exception:
+                continue
+            servers.append(
+                {"category": category_type, "name": server_name, "embed_url": embed_url}
+            )
+
+        if not servers:
+            for match in finditer(
+                r'data-server-name="([^"]+)"[^>]*data-hash="([^"]+)"', html
+            ):
+                server_name = match.group(1)
+                embed_hash = match.group(2)
+                try:
+                    embed_url = b64decode(embed_hash).decode("utf-8")
+                except Exception:
+                    continue
+                servers.append(
+                    {"category": "sub", "name": server_name, "embed_url": embed_url}
+                )
+
+        for s in servers:
+            _LOGGER.info(
+                "Hianime server: name=%s category=%s embed_url=%s",
+                s["name"], s["category"], s["embed_url"][:120],
+            )
+
+        category_servers = [s for s in servers if s["category"] == category]
+        if not category_servers:
+            category_servers = servers
+
+        _hianime_priority = ["megaplay", "1anime", "vidsrc", "megacloud"]
+        for priority_name in _hianime_priority:
+            for server in category_servers:
+                if priority_name in server.get("name", "").lower():
+                    source = await self._resolve_embed(server["embed_url"])
+                    if source:
+                        return source
+                    await sleep(0.5)
+
+        for server in category_servers:
+            source = await self._resolve_embed(server["embed_url"])
+            if source:
+                return source
+            await sleep(0.5)
+
+        return None
+
+    async def _resolve_embed(self, embed_url):
+        if "megaplay" in embed_url:
+            ep_id_match = search(r'/stream/mal/(\d+)/(\d+)/(\w+)', embed_url)
+            if ep_id_match:
+                mal_id = ep_id_match.group(1)
+                ep_num = ep_id_match.group(2)
+                audio = ep_id_match.group(3)
+                api_url = f"{MEGAPLAY_API}/stream/getSources?id={mal_id}"
+                source_data = await self._sm.fetch(
+                    api_url,
+                    headers={
+                        **_HEADERS,
+                        "Referer": embed_url,
+                        "Origin": MEGAPLAY_API,
+                        "X-Requested-With": "XMLHttpRequest",
+                    },
+                    as_json=True,
+                )
+                if not source_data or "sources" not in source_data:
+                    _LOGGER.error("Hianime megaplay API failed: %s", source_data)
+                    return None
+                sources = source_data["sources"]
+                m3u8_url = sources["file"] if isinstance(sources, dict) else sources[0]["file"]
+                subtitles = []
+                for track in source_data.get("tracks", []):
+                    if track.get("kind") == "captions":
+                        subtitles.append({
+                            "url": track["file"],
+                            "label": track.get("label", "English"),
+                            "lang": track.get("srclang", "en"),
+                        })
+                source = EpisodeSource(
+                    url=m3u8_url,
+                    headers={
+                        "Referer": f"{MEGAPLAY_API}/",
+                        "User-Agent": _HEADERS["User-Agent"],
+                    },
+                    subtitles=subtitles,
+                )
+                await source.parse_master_playlist(self._sm)
+                _LOGGER.info("Hianime megaplay resolved: %s", m3u8_url[:80])
+                return source
+
+        if "1anime.site" in embed_url:
+            html = await self._sm.fetch(
+                embed_url,
+                headers={**_HEADERS, "Referer": f"{ANIWATCH_BASE}/", "Origin": ANIWATCH_BASE},
+            )
+            if not html:
+                return None
+            source_match = search(r'<source\s+src="([^"]+)"', html)
+            if source_match:
+                video_url = source_match.group(1)
+                if video_url.startswith("//"):
+                    video_url = "https:" + video_url
+                return EpisodeSource(
+                    url=video_url,
+                    headers={"Referer": "https://my.1anime.site/", "User-Agent": _HEADERS["User-Agent"]},
+                )
+            token_match = search(r'VIDEO_TOKEN\s*=\s*"([^"]+)"', html)
+            if token_match:
+                video_url = f"https://my.1anime.site/stream/{token_match.group(1)}"
+                return EpisodeSource(
+                    url=video_url,
+                    headers={"Referer": "https://my.1anime.site/", "User-Agent": _HEADERS["User-Agent"]},
+                )
+
+        if "tryembed.us.cc" in embed_url:
+            return await self._extract_tryembed(embed_url)
+
+        if "vidnest.fun" in embed_url:
+            return await self._extract_vidnest(embed_url)
+
+        return await self._extract_hianime_player(embed_url)
+
+    async def _extract_tryembed(self, embed_url):
+        html = await self._sm.fetch(
+            embed_url,
+            headers={**_HEADERS, "Referer": f"{self._base}/"},
+        )
+        if not html:
+            return None
+
+        payload_match = search(r'RAW_PAYLOAD="([^"]+)"', html)
+        nonce_match = search(r'EMBED_NONCE="([^"]+)"', html)
+        if not payload_match:
+            _LOGGER.error("Could not find RAW_PAYLOAD in tryembed")
+            return None
+
+        try:
+            payload = _json_loads(b64decode(payload_match.group(1)).decode())
+            meta = payload.get("meta", {})
+        except Exception:
+            _LOGGER.error("Failed to decode tryembed payload")
+            return None
+
+        nonce = nonce_match.group(1) if nonce_match else ""
+        api_url = (
+            f"https://tryembed.us.cc/api/stream_data"
+            f"?id={meta.get('anilist_id', '')}"
+            f"&episode={meta.get('episode', 1)}"
+            f"&audio={meta.get('audio', 'sub')}"
+        )
+        headers = {
+            **_HEADERS,
+            "Referer": embed_url,
+            "Origin": "https://tryembed.us.cc",
+            "X-Embed-Nonce": nonce,
+        }
+        source_data = await self._sm.fetch(api_url, headers=headers, as_json=True)
+        if not source_data:
+            _LOGGER.error("TryEmbed API returned nothing")
+            return None
+
+        m3u8_url = source_data.get("streaming_url") or source_data.get("url") or source_data.get("source", "")
+        if not m3u8_url:
+            _LOGGER.error("TryEmbed API no stream URL: %s", list(source_data.keys()))
+            return None
+
+        _LOGGER.info("TryEmbed resolved: %s", m3u8_url[:120])
+        source = EpisodeSource(
+            url=m3u8_url,
+            headers={"Referer": "https://tryembed.us.cc/", "User-Agent": _HEADERS["User-Agent"]},
+        )
+        await source.parse_master_playlist(self._sm)
+        return source
+
+    async def _extract_vidnest(self, embed_url):
+        html = await self._sm.fetch(
+            embed_url,
+            headers={**_HEADERS, "Referer": f"{self._base}/"},
+        )
+        if not html:
+            return None
+
+        m3u8_match = search(r'(https?://[^"\']+\.m3u8[^"\']*)', html)
+        if m3u8_match:
+            m3u8_url = m3u8_match.group(1)
+            _LOGGER.info("VidNest m3u8 found: %s", m3u8_url[:120])
+            source = EpisodeSource(
+                url=m3u8_url,
+                headers={"Referer": "https://vidnest.fun/", "User-Agent": _HEADERS["User-Agent"]},
+            )
+            await source.parse_master_playlist(self._sm)
+            return source
+
+        api_match = search(r'(https?://[^"\']+api[^"\']*)', html)
+        if api_match:
+            source_data = await self._sm.fetch(
+                api_match.group(1),
+                headers={**_HEADERS, "Referer": embed_url},
+                as_json=True,
+            )
+            if source_data:
+                m3u8_url = source_data.get("streaming_url") or source_data.get("url") or source_data.get("source", "")
+                if m3u8_url:
+                    _LOGGER.info("VidNest API resolved: %s", m3u8_url[:120])
+                    source = EpisodeSource(
+                        url=m3u8_url,
+                        headers={"Referer": "https://vidnest.fun/", "User-Agent": _HEADERS["User-Agent"]},
+                    )
+                    await source.parse_master_playlist(self._sm)
+                    return source
+
+        _LOGGER.error("Could not extract stream from VidNest: %s", embed_url)
+        return None
+
+    async def _extract_hianime_player(self, embed_url):
+        html = await self._sm.fetch(
+            embed_url,
+            headers={**_HEADERS, "Referer": f"{self._base}/"},
+        )
+        if not html:
+            return None
+
+        source_match = search(r'<source\s+src="([^"]+)"', html)
+        if source_match:
+            video_url = source_match.group(1)
+            if video_url.startswith("//"):
+                video_url = "https:" + video_url
+            return EpisodeSource(
+                url=video_url,
+                headers={"Referer": f"{self._base}/", "User-Agent": _HEADERS["User-Agent"]},
+            )
+
+        m3u8_match = search(r'(https?://[^"\']+\.m3u8[^"\']*)', html)
+        if m3u8_match:
+            source = EpisodeSource(
+                url=m3u8_match.group(1),
+                headers={"Referer": f"{self._base}/", "User-Agent": _HEADERS["User-Agent"]},
+            )
+            await source.parse_master_playlist(self._sm)
+            return source
+
+        _LOGGER.error("Could not extract stream from hianime player: %s", embed_url)
+        return None
+
+    async def close(self):
+        await self._sm.close()
