@@ -484,7 +484,7 @@ class TelegramUploader:
         # Sort by size descending — largest files upload first
         all_upload_files.sort(key=lambda x: x[0], reverse=True)
 
-        # Concurrent uploads with semaphore for speed
+        # Limit concurrent uploads to reduce CPU/memory pressure
         _upload_sem = Semaphore(3)
 
         for f_size, file_, f_path, dirpath in all_upload_files:

@@ -1,5 +1,4 @@
 from asyncio import sleep
-from re import sub as re_sub
 
 from PIL import Image
 from pyrogram import StopTransmission
@@ -57,10 +56,8 @@ class HypertgUpload(HypertgTransfer):
 
         if not is_image and thumb is None:
             file_name = ospath.splitext(self._up_file)[0]
-            # Strip .partXXX suffix for split files to find original thumbnail
-            base_name = re_sub(r"\.part\d+$", "", file_name)
             base_path = getattr(self._obj, "_path", "")
-            thumb_path = f"{base_path}/yt-dlp-thumb/{base_name}.jpg"
+            thumb_path = f"{base_path}/yt-dlp-thumb/{file_name}.jpg"
             if await aiopath.isfile(thumb_path):
                 thumb = thumb_path
             elif await aiopath.isfile(thumb_path.replace("/yt-dlp-thumb", "")):
