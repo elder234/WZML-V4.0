@@ -240,6 +240,7 @@ Examples:
 3. /mirror link -rn "{title}.{resolution}-{uploader}.{ext}" (minimal format)
 
 Requires RENAME_ENABLED to be turned on in user settings.
+"""
 
 transmission = """<b>Tg transmission</b>: -hl -ut -bt
 /cmd link -hl (both: user for >2GB, bot for ≤2GB)
