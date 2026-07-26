@@ -154,7 +154,6 @@ class FileRenamer:
                     if height in _RES_MAP:
                         result["resolution"] = _RES_MAP[height]
                     elif height > 0:
-                        # Find nearest standard resolution
                         closest = min(_RES_MAP.keys(), key=lambda r: abs(r - height))
                         if abs(closest - height) < 100:
                             result["resolution"] = _RES_MAP[closest]
@@ -286,26 +285,32 @@ class FileRenamer:
 
         return result
 
-    def build_new_name(self, parsed, metadata=None):
+    def build_new_name(self, parsed, metadata=None, db_metadata=None):
         """Build new filename from parsed info and metadata.
 
         metadata dict from get_video_metadata: resolution, codec, audio
+        db_metadata dict from AniList/TMDb: title, season, episode, episode_title
         """
         meta = metadata or {}
+        db = db_metadata or {}
         # Use metadata as fallback for filename-parsed values
         resolution = parsed.get("resolution") or meta.get("resolution", "")
         codec = parsed.get("codec") or meta.get("codec", "")
         audio = parsed.get("audio") or meta.get("audio", "")
 
-        # Get resolution from metadata if not parsed
-        if not resolution and meta.get("resolution"):
-            resolution = meta["resolution"]
+        # Database overrides for title, season, episode
+        title = db.get("title") or parsed.get("title", "Unknown")
+        season = db.get("season") or parsed.get("season", "")
+        episode = db.get("episode") or parsed.get("episode", "")
+        episode_title = db.get("episode_title", "")
+        year = db.get("year") or parsed.get("year", "")
 
         values = {
-            "title": parsed.get("title", "Unknown"),
-            "year": parsed.get("year", ""),
-            "season": parsed.get("season", ""),
-            "episode": parsed.get("episode", ""),
+            "title": title,
+            "year": year,
+            "season": season,
+            "episode": episode,
+            "episode_title": episode_title,
             "resolution": resolution,
             "source": parsed.get("source", ""),
             "language": parsed.get("language", ""),
@@ -344,9 +349,10 @@ class FileRenamer:
 
         return name
 
-    async def rename(self, filepath):
+    async def rename(self, filepath, db_metadata=None):
         """Parse filename, get metadata, build new name, rename file.
 
+        db_metadata from AniList/TMDb: title, season, episode, episode_title
         Returns (new_filepath, new_name) or (None, None) on failure.
         """
         if not ospath.exists(filepath):
@@ -357,9 +363,9 @@ class FileRenamer:
         parsed = self.parse_filename(filename)
         metadata = await self.get_video_metadata(filepath)
 
-        _LOGGER.info(f"Renamer: parsed={parsed}, metadata={metadata}")
+        _LOGGER.info(f"Renamer: parsed={parsed}, metadata={metadata}, db={db_metadata}")
 
-        new_name = self.build_new_name(parsed, metadata)
+        new_name = self.build_new_name(parsed, metadata, db_metadata)
         if new_name == filename:
             _LOGGER.info(f"Renamer: no rename needed for {filename}")
             return filepath, filename

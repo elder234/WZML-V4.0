@@ -11,6 +11,10 @@ from ...ext_utils.bot_utils import sync_to_async
 
 _LOGGER = getLogger(__name__)
 
+_ANILIST_GRAPHQL = "https://graphql.anilist.co"
+_TMDB_BASE = "https://api.themoviedb.org/3"
+_TMDB_IMG = "https://image.tmdb.org/t/p"
+
 ANIWATCH_BASE = "https://aniwatch.co.at"
 MEGACLOUD_EMBED = "https://embed.megastatics.com"
 MEGACLOUD_API = "https://megacloud.tv"
@@ -63,14 +67,84 @@ class AnimeEpisode:
 
 
 class EpisodeSource:
-    __slots__ = ("url", "headers", "subtitles", "intro_skip", "outro_skip")
+    __slots__ = (
+        "url", "headers", "subtitles", "intro_skip", "outro_skip",
+        "resolution", "bandwidth", "frame_rate",
+    )
 
-    def __init__(self, url, headers=None, subtitles=None, intro_skip=None, outro_skip=None):
+    def __init__(
+        self, url, headers=None, subtitles=None, intro_skip=None, outro_skip=None,
+        resolution="", bandwidth=0, frame_rate="",
+    ):
         self.url = url
         self.headers = headers or {}
         self.subtitles = subtitles or []
         self.intro_skip = intro_skip
         self.outro_skip = outro_skip
+        self.resolution = resolution
+        self.bandwidth = bandwidth
+        self.frame_rate = frame_rate
+
+    async def parse_master_playlist(self, sm):
+        """Parse master.m3u8 to extract resolution variants."""
+        resp = await sm.fetch(
+            self.url,
+            headers={
+                **self.headers,
+                "Accept": "*/*",
+            },
+        )
+        if not resp:
+            return
+
+        lines = resp.strip().splitlines()
+        best = None
+        variants = []
+        for i, line in enumerate(lines):
+            if not line.startswith("#EXT-X-STREAM-INF:"):
+                continue
+            info = line[len("#EXT-X-STREAM-INF:"):]
+            attrs = {}
+            for part in info.split(","):
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    attrs[k.strip()] = v.strip()
+
+            res = attrs.get("RESOLUTION", "")
+            bw = int(attrs.get("BANDWIDTH", 0))
+            fps = attrs.get("FRAME-RATE", "")
+            codecs = attrs.get("CODECS", "")
+
+            if i + 1 < len(lines) and not lines[i + 1].startswith("#"):
+                variant_url = lines[i + 1].strip()
+            else:
+                continue
+
+            variant = {
+                "url": variant_url,
+                "resolution": res,
+                "bandwidth": bw,
+                "frame_rate": fps,
+                "codecs": codecs,
+            }
+            variants.append(variant)
+            if best is None or bw > best["bandwidth"]:
+                best = variant
+
+        if variants:
+            _LOGGER.info(
+                "m3u8 variants: %d (best=%s, %d bps)",
+                len(variants),
+                best["resolution"],
+                best["bandwidth"],
+            )
+
+        if best:
+            self.resolution = best["resolution"]
+            self.bandwidth = best["bandwidth"]
+            self.frame_rate = best["frame_rate"]
+            base = self.url.rsplit("/", 1)[0] + "/"
+            self.url = base + best["url"]
 
 
 class SessionManager:
@@ -323,7 +397,7 @@ class AniWatchScraper:
 
         _LOGGER.info("Megaplay source resolved: %s", m3u8_url[:80])
 
-        return EpisodeSource(
+        source = EpisodeSource(
             url=m3u8_url,
             headers={
                 "Referer": f"{MEGAPLAY_API}/",
@@ -333,6 +407,8 @@ class AniWatchScraper:
             intro_skip=intro_skip,
             outro_skip=outro_skip,
         )
+        await source.parse_master_playlist(self._sm)
+        return source
 
     async def _extract_megacloud(self, embed_url):
         embed_url = sub(r"megacloud\.blog|megacloud\.tv", "embed.megastatics.com", embed_url)
@@ -400,7 +476,7 @@ class AniWatchScraper:
         intro_skip = (intro.get("end", 0) - intro.get("start", 0)) if intro else None
         outro_skip = (outro.get("end", 0) - outro.get("start", 0)) if outro else None
 
-        return EpisodeSource(
+        source = EpisodeSource(
             url=m3u8_url,
             headers={
                 "Referer": f"{MEGACLOUD_EMBED}/",
@@ -410,6 +486,8 @@ class AniWatchScraper:
             intro_skip=intro_skip,
             outro_skip=outro_skip,
         )
+        await source.parse_master_playlist(self._sm)
+        return source
 
     def _extract_client_key(self, html):
         match = search(r'(?:CLIENT_KEY|_k)\s*[:=]\s*["\']([a-zA-Z0-9]{48})["\']', html)
@@ -455,3 +533,237 @@ class AniWatchScraper:
 
     async def close(self):
         await self._sm.close()
+
+
+async def anilist_search(query):
+    """Search AniList for anime by title. Returns dict of first match."""
+    gql = """
+    query ($search: String) {
+        Media(search: $search, type: ANIME) {
+            id
+            title { romaji english }
+            season
+            seasonYear
+            episodes
+            status
+        }
+    }
+    """
+    async with ClientSession() as s:
+        try:
+            async with s.post(
+                _ANILIST_GRAPHQL,
+                json={"query": gql, "variables": {"search": query}},
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return {}
+                result = await resp.json()
+                media = result.get("data", {}).get("Media")
+                if not media:
+                    return {}
+                title = media["title"]
+                return {
+                    "id": media["id"],
+                    "title": title.get("english") or title.get("romaji", ""),
+                    "romaji": title.get("romaji", ""),
+                    "season": media.get("season", ""),
+                    "season_year": media.get("seasonYear", 0),
+                    "total_episodes": media.get("episodes", 0),
+                    "status": media.get("status", ""),
+                }
+        except Exception as e:
+            _LOGGER.warning("AniList query failed: %s", e)
+            return {}
+
+
+async def anilist_search_multi(query):
+    """Search AniList for multiple anime matches."""
+    gql = """
+    query ($search: String) {
+        Page(perPage: 5) {
+            media(search: $search, type: ANIME) {
+                id
+                title { romaji english }
+                season
+                seasonYear
+                episodes
+            }
+        }
+    }
+    """
+    async with ClientSession() as s:
+        try:
+            async with s.post(
+                _ANILIST_GRAPHQL,
+                json={"query": gql, "variables": {"search": query}},
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return []
+                result = await resp.json()
+                return result.get("data", {}).get("Page", {}).get("media", [])
+        except Exception as e:
+            _LOGGER.warning("AniList multi search failed: %s", e)
+            return []
+
+
+async def anilist_episode_info(anilist_id, episode):
+    """Get episode title from AniList by anime ID and episode number."""
+    gql = """
+    query ($id: Int, $episode: Int) {
+        Media(id: $id, type: ANIME) {
+            title { english romaji }
+            episodes
+            streamingEpisodes {
+                title
+                thumbnail
+                url
+            }
+        }
+    }
+    """
+    async with ClientSession() as s:
+        try:
+            async with s.post(
+                _ANILIST_GRAPHQL,
+                json={"query": gql, "variables": {"id": anilist_id, "episode": episode}},
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return {}
+                result = await resp.json()
+                media = result.get("data", {}).get("Media", {})
+                title = media.get("title", {})
+                ep_title = ""
+                eps = media.get("streamingEpisodes", [])
+                for ep in eps:
+                    t = ep.get("title", "")
+                    if f"Episode {episode}" in t or f"Ep {episode}" in t:
+                        ep_title = t.split("-")[-1].strip() if "-" in t else t
+                        break
+                return {
+                    "title": title.get("english") or title.get("romaji", ""),
+                    "romaji": title.get("romaji", ""),
+                    "total_episodes": media.get("episodes", 0),
+                    "episode_title": ep_title,
+                }
+        except Exception as e:
+            _LOGGER.warning("AniList episode info failed: %s", e)
+            return {}
+
+
+async def tmdb_search_tv(query):
+    """Search TMDb for TV shows. Returns first match or None."""
+    api_key = Config.TMDB_API_KEY
+    if not api_key:
+        return None
+    async with ClientSession() as s:
+        try:
+            async with s.get(
+                f"{_TMDB_BASE}/search/tv",
+                params={"api_key": api_key, "query": query, "language": "en-US"},
+                headers={"Accept": "application/json"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                results = data.get("results", [])
+                if not results:
+                    return None
+                best = results[0]
+                return {
+                    "id": best["id"],
+                    "title": best.get("name", ""),
+                    "year": (best.get("first_air_date") or "")[:4],
+                    "total_seasons": best.get("number_of_seasons", 0),
+                    "total_episodes": best.get("number_of_episodes", 0),
+                }
+        except Exception as e:
+            _LOGGER.warning("TMDb search failed: %s", e)
+            return None
+
+
+async def tmdb_search_movie(query):
+    """Search TMDb for movies. Returns first match or None."""
+    api_key = Config.TMDB_API_KEY
+    if not api_key:
+        return None
+    async with ClientSession() as s:
+        try:
+            async with s.get(
+                f"{_TMDB_BASE}/search/movie",
+                params={"api_key": api_key, "query": query, "language": "en-US"},
+                headers={"Accept": "application/json"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                results = data.get("results", [])
+                if not results:
+                    return None
+                best = results[0]
+                return {
+                    "id": best["id"],
+                    "title": best.get("title", ""),
+                    "year": (best.get("release_date") or "")[:4],
+                }
+        except Exception as e:
+            _LOGGER.warning("TMDb movie search failed: %s", e)
+            return None
+
+
+async def tmdb_episode_info(tmdb_id, season, episode):
+    """Get episode title from TMDb."""
+    api_key = Config.TMDB_API_KEY
+    if not api_key:
+        return {}
+    async with ClientSession() as s:
+        try:
+            async with s.get(
+                f"{_TMDB_BASE}/tv/{tmdb_id}/season/{season}/episode/{episode}",
+                params={"api_key": api_key, "language": "en-US"},
+                headers={"Accept": "application/json"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return {}
+                data = await resp.json()
+                return {
+                    "episode_title": data.get("name", ""),
+                    "air_date": data.get("air_date", ""),
+                    "overview": data.get("overview", ""),
+                }
+        except Exception as e:
+            _LOGGER.warning("TMDb episode info failed: %s", e)
+            return {}
+
+
+async def tmdb_season_info(tmdb_id, season):
+    """Get season info from TMDb."""
+    api_key = Config.TMDB_API_KEY
+    if not api_key:
+        return {}
+    async with ClientSession() as s:
+        try:
+            async with s.get(
+                f"{_TMDB_BASE}/tv/{tmdb_id}/season/{season}",
+                params={"api_key": api_key, "language": "en-US"},
+                headers={"Accept": "application/json"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return {}
+                data = await resp.json()
+                return {
+                    "season_title": data.get("name", ""),
+                    "total_episodes": data.get("episodes", [])[-1].get("episode_number", 0) if data.get("episodes") else 0,
+                }
+        except Exception as e:
+            _LOGGER.warning("TMDb season info failed: %s", e)
+            return {}

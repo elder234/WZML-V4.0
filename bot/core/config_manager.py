@@ -67,6 +67,7 @@ class Config:
     INC_TASK_NOTIFY = True
     INC_TASK_RESUME = True
     ANIWATCH_BASE = "https://aniwatch.co.at"
+    TMDB_API_KEY = ""
     ANIME_TOKI_BASE = ""
     ANIME_DEFAULT_CATEGORY = "sub"
     INDEX_URL = ""

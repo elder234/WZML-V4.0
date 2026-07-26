@@ -6,11 +6,13 @@ from pyrogram.filters import regex, user
 from pyrogram.handlers import CallbackQueryHandler
 
 from .. import DOWNLOAD_DIR, LOGGER
+from ..core.config_manager import Config
 from ..helper.listeners.task_listener import TaskListener
 from ..helper.ext_utils.bot_utils import new_task
 from ..helper.ext_utils.task_manager import pre_task_check
 from ..helper.mirror_leech_utils.download_utils.anime_scraper import (
     AniWatchScraper,
+    anilist_episode_info,
 )
 from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import YoutubeDLHelper
 from ..helper.telegram_helper.button_build import ButtonMaker
@@ -69,6 +71,8 @@ class AnimeTask(TaskListener):
         self.is_cancelled = False
         self._is_anime = True
         self.is_ytdlp = True
+        self.db_metadata = None
+        self.rename = Config.RENAME_TEMPLATE
         self.mode = ("#ytdlp", "#Leech" if self.is_leech else "#GDrive")
 
 
@@ -297,23 +301,55 @@ async def _download_episode(session, ep, source):
     listener = AnimeTask(session.message._client, session.message)
     listener.link = source.url
     listener.name = ep_name
-    listener.is_leech = False
+    listener.is_leech = True
     listener.is_cancelled = False
-    listener.up_dest = listener.user_dict.get("GDRIVE_ID") or ""
     listener.source_url = source.url
     listener._set_mode_engine()
+
+    db_metadata = {
+        "title": session.anime_title,
+        "season": "",
+        "episode": f"E{ep.number:02d}",
+    }
+    if source.resolution:
+        db_metadata["resolution"] = source.resolution
+
+    try:
+        info = await anilist_episode_info(
+            int(session.anime_id) if session.anime_id.isdigit() else 0,
+            ep.number,
+        )
+        if info:
+            db_metadata["title"] = info.get("title") or session.anime_title
+            db_metadata["episode_title"] = info.get("episode_title", "")
+            LOGGER.info(
+                "AniList EP%s: title=%s, ep_title=%s",
+                ep.number, db_metadata["title"], db_metadata["episode_title"],
+            )
+    except Exception as e:
+        LOGGER.warning("AniList lookup failed for EP%s: %s", ep.number, e)
+
+    listener.db_metadata = db_metadata
+
+    try:
+        await listener.before_start()
+    except ValueError as e:
+        await listener.on_download_error(str(e))
+        return
 
     path = f"{DOWNLOAD_DIR}{listener.mid}/"
 
     ydl = YoutubeDLHelper(listener)
     ydl.opts["http_headers"] = source.headers
-    ydl.opts["format"] = "best"
+    ydl.opts["format"] = "bestvideo[ext=mp4][vcodec!~=?av01]+bestaudio[ext=m4a]/best[ext=mp4]/best"
     ydl.opts["outtmpl"] = {"default": f"{path}/{ep_name}.%(ext)s"}
     ydl.opts["writethumbnail"] = False
-    ydl.opts["prefer_free_formats"] = True
+
+    if source.resolution:
+        LOGGER.info("EP%s resolution: %s", ep.number, source.resolution)
 
     try:
         await ydl.add_download(path, "best", False, {})
     except Exception as e:
         LOGGER.error("YT-DLP download failed for EP%s: %s", ep.number, e)
-        listener.is_cancelled = True
+        await listener.on_download_error(str(e))

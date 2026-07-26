@@ -288,7 +288,8 @@ class TaskListener(TaskConfig):
         if self.rename:
             uploader = self.user_dict.get("RENAME_UPLOADER", "") or Config.RENAME_UPLOADER
             renamer = FileRenamer(uploader=uploader, template=self.rename)
-            new_path, new_name = await renamer.rename(up_path)
+            db_meta = getattr(self, "db_metadata", None)
+            new_path, new_name = await renamer.rename(up_path, db_metadata=db_meta)
             if new_path and new_path != up_path:
                 up_path = new_path
                 if self.is_cancelled:
