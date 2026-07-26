@@ -117,8 +117,7 @@ class TaskListener(TaskConfig):
  """,
             )
         if (
-            self.is_super_chat
-            and (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
+            (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
             and Config.DATABASE_URL
         ):
             await database.add_incomplete_task(
@@ -431,8 +430,7 @@ class TaskListener(TaskConfig):
         self, link, files, folders, mime_type, rclone_path="", dir_id=""
     ):
         if (
-            self.is_super_chat
-            and (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
+            (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
             and Config.DATABASE_URL
         ):
             await database.rm_complete_task(self.message.link)
@@ -658,8 +656,7 @@ class TaskListener(TaskConfig):
             await update_status_message(self.message.chat.id)
 
         if (
-            self.is_super_chat
-            and (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
+            (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
             and Config.DATABASE_URL
         ):
             await database.rm_complete_task(self.message.link)
@@ -697,8 +694,7 @@ class TaskListener(TaskConfig):
             await update_status_message(self.message.chat.id)
 
         if (
-            self.is_super_chat
-            and (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
+            (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME)
             and Config.DATABASE_URL
         ):
             await database.rm_complete_task(self.message.link)
