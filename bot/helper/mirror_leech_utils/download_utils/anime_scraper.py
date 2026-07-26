@@ -10,7 +10,7 @@ from ...ext_utils.bot_utils import sync_to_async
 
 _LOGGER = getLogger(__name__)
 
-ANIWATCH_BASE = "https://aniwatchtv.to"
+ANIWATCH_BASE = "https://aniwatch.co.at"
 MEGACLOUD_EMBED = "https://megacloud.blog"
 MEGACLOUD_API = "https://megacloud.tv"
 
@@ -109,7 +109,7 @@ class SessionManager:
 
 
 class AniWatchScraper:
-    """Scraper for aniwatchtv.to with Cloudflare bypass."""
+    """Scraper for aniwatch.co.at with Cloudflare bypass."""
 
     def __init__(self):
         self._sm = SessionManager()
