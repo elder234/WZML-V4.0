@@ -33,7 +33,7 @@ _REST_HEADERS = {
     "Cache-Control": "no-cache",
 }
 
-_SERVER_PRIORITY = ["megaplay", "vidsrc", "megacloud", "vidstreaming", "vidcloud"]
+_SERVER_PRIORITY = ["megaplay", "1anime", "vidsrc", "megacloud", "vidstreaming", "vidcloud"]
 
 
 class AnimeSearchResult:
@@ -325,9 +325,9 @@ class AniWatchScraper:
                 embed_url = b64decode(embed_hash).decode("utf-8")
             except Exception:
                 continue
-            servers.append(
-                {"category": category, "name": server_name, "embed_url": embed_url}
-            )
+                servers.append(
+                    {"category": category, "name": server_name, "embed_url": embed_url}
+                )
 
         if not servers:
             for match in finditer(
@@ -343,14 +343,23 @@ class AniWatchScraper:
                     {"category": "sub", "name": server_name, "embed_url": embed_url}
                 )
 
+        for s in servers:
+            _LOGGER.info(
+                "Server: name=%s category=%s embed_url=%s",
+                s["name"], s["category"], s["embed_url"][:120],
+            )
         _LOGGER.info("Found %d servers for episode %s", len(servers), episode_id)
         return servers
 
     async def get_streaming_source(self, embed_url):
-        if "megaplay" in embed_url or "1anime.site/megaplay" in embed_url:
+        _LOGGER.info("get_streaming_source: embed_url=%s", embed_url[:200] if embed_url else "None")
+        if "megaplay" in embed_url:
             return await self._extract_megaplay(embed_url)
         if "megaflix" in embed_url:
             return await self._extract_megaflix(embed_url)
+        if "1anime.site" in embed_url:
+            return await self._extract_1anime(embed_url)
+        _LOGGER.warning("No known embed pattern matched, falling back to megacloud for: %s", embed_url[:200])
         return await self._extract_megacloud(embed_url)
 
     async def _extract_megaplay(self, embed_url):
@@ -496,6 +505,45 @@ class AniWatchScraper:
             subtitles=subtitles,
         )
         await source.parse_master_playlist(self._sm)
+        return source
+
+    async def _extract_1anime(self, embed_url):
+        """Extract direct MP4 URL from my.1anime.site embed pages."""
+        html = await self._sm.fetch(
+            embed_url,
+            headers={
+                **_HEADERS,
+                "Referer": f"{ANIWATCH_BASE}/",
+                "Origin": ANIWATCH_BASE,
+            },
+        )
+        if not html:
+            _LOGGER.error("Failed to fetch 1anime embed page: %s", embed_url)
+            return None
+
+        source_match = search(r'<source\s+src="([^"]+)"', html)
+        if not source_match:
+            token_match = search(r'VIDEO_TOKEN\s*=\s*"([^"]+)"', html)
+            if token_match:
+                token = token_match.group(1)
+                video_url = f"https://my.1anime.site/stream/{token}"
+            else:
+                _LOGGER.error("Could not extract video URL from 1anime embed: %s", embed_url)
+                return None
+        else:
+            video_url = source_match.group(1)
+            if video_url.startswith("//"):
+                video_url = "https:" + video_url
+
+        _LOGGER.info("1anime source resolved: %s", video_url[:120])
+
+        source = EpisodeSource(
+            url=video_url,
+            headers={
+                "Referer": "https://my.1anime.site/",
+                "User-Agent": _HEADERS["User-Agent"],
+            },
+        )
         return source
 
     async def _extract_megacloud(self, embed_url):
