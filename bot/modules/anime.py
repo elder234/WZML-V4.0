@@ -344,9 +344,11 @@ async def _download_episode(session, ep, source):
 
     ydl = YoutubeDLHelper(listener)
     ydl.opts["http_headers"] = source.headers
-    ydl.opts["format"] = "bestvideo[ext=mp4][vcodec!~=?av01]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+    ydl.opts["format"] = "best"
     ydl.opts["outtmpl"] = {"default": f"{path}/{ep_name}.%(ext)s"}
     ydl.opts["writethumbnail"] = False
+    ydl.opts["downloader"] = "ffmpeg"
+    ydl.opts["downloader_args"] = {"ffmpeg": ["-hls_use_mpegts", ""]}
 
     if source.resolution:
         LOGGER.info("EP%s resolution: %s", ep.number, source.resolution)
