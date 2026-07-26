@@ -2,6 +2,7 @@ from asyncio import Event, wait_for
 from functools import partial
 from time import time
 
+from aiofiles.os import makedirs as aiomakedirs
 from pyrogram.filters import regex, user
 from pyrogram.handlers import CallbackQueryHandler
 
@@ -14,6 +15,7 @@ from ..helper.ext_utils.task_manager import pre_task_check
 from ..helper.mirror_leech_utils.download_utils.anime_scraper import (
     AniWatchScraper,
     AnimeTokiScraper,
+    CloudDriveScraper,
     HianimeScraper,
     anilist_episode_info,
 )
@@ -28,6 +30,7 @@ from ..helper.telegram_helper.message_utils import (
 
 _anime_scraper = AniWatchScraper()
 _animetoki_scraper = AnimeTokiScraper()
+_clouddrive_scraper = CloudDriveScraper()
 _hianime_scraper = HianimeScraper()
 
 _user_sessions = {}
@@ -121,6 +124,8 @@ async def anime_callback(_, query, obj):
             try:
                 if obj.source == "animetoki":
                     obj.episodes = await _animetoki_scraper.get_episodes(result.slug)
+                elif obj.source == "clouddrive":
+                    obj.episodes = await _clouddrive_scraper.get_episodes(result.slug)
                 elif obj.source == "hianime":
                     obj.episodes = await _hianime_scraper.get_episodes(result.anime_id)
                 else:
@@ -172,7 +177,7 @@ async def anime_callback(_, query, obj):
 
 
 async def _show_episodes(obj, message):
-    if obj.source == "animetoki":
+    if obj.source in ("animetoki", "clouddrive"):
         obj.category = "sub"
         await _show_episode_selection(obj, message)
         return
@@ -260,6 +265,7 @@ async def anime_search(client, message):
     buttons = ButtonMaker()
     buttons.data_button("AnimeWatch (aniwatch.co.at)", f"anime src aniwatch")
     buttons.data_button("AnimeToki (animetoki.com)", f"anime src animetoki")
+    buttons.data_button("CloudDrive (AT-Drive)", f"anime src clouddrive")
     buttons.data_button("Hianime (hianime.ro)", f"anime src hianime")
     buttons.data_button("Cancel", "anime cancel", "footer")
 
@@ -269,7 +275,8 @@ async def anime_search(client, message):
         message,
         f"**Select source for:** `{query}`\n\n"
         "**AnimeWatch** — MegaCloud/MegaPlay embeds, m3u8 streams\n"
-        "**AnimeToki** — Self-hosted, direct .mkv files, 1080p\n"
+        "**AnimeToki** — Self-hosted, direct .mkv streams, 1080p\n"
+        "**CloudDrive** — AT-Drive batch .mkv downloads, pre-encoded\n"
         "**Hianime** — MegaPlay/multiple embeds, m3u8 streams",
         buttons.build_menu(1),
     )
@@ -296,6 +303,8 @@ async def _perform_search(session):
     try:
         if session.source == "animetoki":
             results = await _animetoki_scraper.search(query)
+        elif session.source == "clouddrive":
+            results = await _clouddrive_scraper.search(query)
         elif session.source == "hianime":
             results = await _hianime_scraper.search(query)
         else:
@@ -343,6 +352,8 @@ async def _start_anime_download(session):
         try:
             if session.source == "animetoki":
                 source = await _animetoki_scraper.get_source(ep.ep_id)
+            elif session.source == "clouddrive":
+                source = await _clouddrive_scraper.get_source(ep.ep_id)
             elif session.source == "hianime":
                 source = await _hianime_scraper.get_episode_source(
                     ep.ep_id, session.category
@@ -431,6 +442,10 @@ async def _download_episode(session, ep, source):
         listener.transmission_mode, listener.is_leech,
     )
 
+    if session.source == "clouddrive":
+        await _download_cloud_drive(listener, ep, source, ep_name)
+        return
+
     path = f"{DOWNLOAD_DIR}{listener.mid}/"
 
     ydl = YoutubeDLHelper(listener)
@@ -455,3 +470,37 @@ async def _download_episode(session, ep, source):
             await listener.on_download_error(str(e))
         except Exception:
             pass
+
+
+async def _download_cloud_drive(listener, ep, source, ep_name):
+    """Download a CloudDrive .mkv file directly and trigger upload."""
+    dl_dir = f"{DOWNLOAD_DIR}{listener.mid}/"
+    await aiomakedirs(dl_dir, exist_ok=True)
+
+    filename = ep.title if ep.title else f"{ep_name}.mkv"
+    if not any(filename.lower().endswith(ext) for ext in (".mkv", ".mp4", ".webm")):
+        filename = f"{ep_name}.mkv"
+
+    filepath = f"{dl_dir}{filename}"
+
+    LOGGER.info("CloudDrive downloading: %s -> %s", source.url[:100], filepath)
+
+    success = await _clouddrive_scraper.download_file(
+        source.url, filepath, headers=source.headers,
+    )
+    if not success:
+        LOGGER.error("CloudDrive download failed for EP%s", ep.number)
+        try:
+            await listener.on_download_error("CloudDrive download failed")
+        except Exception:
+            pass
+        return
+
+    listener.name = filename
+    listener.is_file = True
+
+    LOGGER.info("CloudDrive download complete for EP%s, triggering upload", ep.number)
+    try:
+        await listener.on_download_complete()
+    except Exception as e:
+        LOGGER.error("on_download_complete failed for CloudDrive EP%s: %s", ep.number, e)

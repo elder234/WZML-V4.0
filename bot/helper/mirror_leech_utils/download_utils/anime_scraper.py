@@ -1,9 +1,12 @@
 from asyncio import sleep
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from json import loads as _json_loads
 from logging import getLogger
+from os.path import basename
 from re import finditer, search, sub
+from urllib.parse import quote, unquote
 
+import aiofiles
 from aiohttp import ClientSession
 from curl_cffi import Session as CurlSession
 
@@ -179,6 +182,51 @@ class SessionManager:
 
         return None
 
+    async def post(self, url, headers=None, as_json=False):
+        hdrs = headers or _HEADERS
+        try:
+            session = self._get_curl()
+            resp = await sync_to_async(session.post, url, headers=hdrs, timeout=15)
+            if resp.status_code == 200:
+                return resp.json() if as_json else resp.text
+        except Exception as e:
+            _LOGGER.warning("curl_cffi POST failed for %s: %s", url, e)
+
+        try:
+            async with ClientSession() as s:
+                async with s.post(url, headers=hdrs, timeout=15) as resp:
+                    if resp.status == 200:
+                        return await resp.json() if as_json else await resp.text()
+        except Exception as e:
+            _LOGGER.warning("aiohttp POST fallback failed for %s: %s", url, e)
+
+        return None
+
+    async def download(self, url, filepath, headers=None):
+        hdrs = headers or _HEADERS
+        try:
+            session = self._get_curl()
+            resp = await sync_to_async(session.get, url, headers=hdrs, timeout=120)
+            if resp.status_code == 200:
+                with open(filepath, "wb") as f:
+                    f.write(resp.content)
+                return True
+        except Exception as e:
+            _LOGGER.warning("curl_cffi download failed for %s: %s", url, e)
+
+        try:
+            async with ClientSession() as s:
+                async with s.get(url, headers=hdrs, timeout=120) as resp:
+                    if resp.status == 200:
+                        async with aiofiles.open(filepath, "wb") as f:
+                            async for chunk in resp.content.iter_chunked(1048576):
+                                await f.write(chunk)
+                        return True
+        except Exception as e:
+            _LOGGER.warning("aiohttp download fallback failed for %s: %s", url, e)
+
+        return False
+
     async def close(self):
         if self._curl:
             await sync_to_async(self._curl.close)
@@ -325,9 +373,9 @@ class AniWatchScraper:
                 embed_url = b64decode(embed_hash).decode("utf-8")
             except Exception:
                 continue
-                servers.append(
-                    {"category": category, "name": server_name, "embed_url": embed_url}
-                )
+            servers.append(
+                {"category": category, "name": server_name, "embed_url": embed_url}
+            )
 
         if not servers:
             for match in finditer(
@@ -877,6 +925,242 @@ class AnimeTokiScraper:
             subtitles=subtitles,
             resolution="1920x1080",
         )
+
+    async def close(self):
+        await self._sm.close()
+
+
+CLOUDDRIVE_BASE = "https://cloud.animetoki.com"
+
+
+class CloudDriveScraper:
+    """Scraper for cloud.animetoki.com — batch .mkv downloads via AT-Drive."""
+
+    def __init__(self):
+        self._sm = SessionManager()
+        self._current_cd_link = ""
+        self._current_node_index = 0
+        self._current_files = []
+
+    @staticmethod
+    def _encode_path(url_or_path):
+        """Convert URL-encoded or plain folder path to base64 segments for CloudDrive API."""
+        path = url_or_path
+        if "cloud.animetoki.com" in path:
+            path = path.split("cloud.animetoki.com", 1)[-1]
+        path = path.strip("/")
+        if not path:
+            return "/"
+
+        segments = path.split("/")
+        encoded = []
+        for seg in segments:
+            decoded = unquote(seg)
+            if any(c in decoded for c in "[] '"):
+                encoded.append(b64encode(decoded.encode()).decode())
+            else:
+                try:
+                    if b64encode(b64decode(seg)).decode() == seg:
+                        encoded.append(seg)
+                    else:
+                        encoded.append(b64encode(decoded.encode()).decode())
+                except Exception:
+                    encoded.append(b64encode(decoded.encode()).decode())
+        return "/" + "/".join(encoded) + "/"
+
+    async def _init_session(self):
+        """GET root to obtain session cookie."""
+        await self._sm.fetch(
+            CLOUDDRIVE_BASE,
+            headers={**_HEADERS, "Referer": CLOUDDRIVE_BASE},
+        )
+
+    async def search(self, query):
+        url = f"{ANIMETOKI_BASE}/?s={query}"
+        html = await self._sm.fetch(url, headers=_HEADERS)
+        if not html:
+            return []
+
+        results = []
+        for match in finditer(
+            r'<h2[^>]*class="post-title[^"]*"[^>]*>\s*<a\s+href="([^"]+)"[^>]*>([^<]+)</a>',
+            html,
+        ):
+            href = match.group(1)
+            title = match.group(2).strip()
+            if "/episode/" in href or not title:
+                continue
+            slug = href.rstrip("/").split("/")[-1]
+            results.append(
+                AnimeSearchResult(title, slug, "", True, True, 0, slug)
+            )
+            if len(results) >= 10:
+                break
+
+        if not results:
+            for match in finditer(
+                r'<a\s+href="([^"]*(?:animetoki\.com/[^/]+(?:/[^/]+)?))"[^>]*>'
+                r'([^<]{3,80})</a>',
+                html,
+            ):
+                href = match.group(1)
+                title = match.group(2).strip()
+                if "/episode/" in href or not title:
+                    continue
+                slug = href.rstrip("/").split("/")[-1]
+                if slug in ("", "tag", "category", "page"):
+                    continue
+                results.append(
+                    AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                )
+                if len(results) >= 10:
+                    break
+
+        return results
+
+    async def _find_cloud_drive_link(self, slug):
+        """Fetch anime page and extract cloud drive folder link."""
+        page_url = f"{ANIMETOKI_BASE}/{slug}/"
+        html = await self._sm.fetch(page_url, headers=_HEADERS)
+        if not html:
+            return None
+
+        cd_match = search(
+            r'href="(//cloud\.animetoki\.com/[^"]+)"',
+            html,
+        )
+        if cd_match:
+            url = cd_match.group(1)
+            return "https:" + url if url.startswith("//") else url
+
+        cd_match = search(
+            r'href="(https?://cloud\.animetoki\.com/[^"]+)"',
+            html,
+        )
+        if cd_match:
+            return cd_match.group(1)
+
+        return None
+
+    async def get_episodes(self, slug):
+        """List .mkv files from the CloudDrive folder for an anime."""
+        cd_link = await self._find_cloud_drive_link(slug)
+        if not cd_link:
+            _LOGGER.warning("No cloud drive link found for %s", slug)
+            return []
+
+        await self._init_session()
+
+        api_path = self._encode_path(cd_link)
+        api_url = f"{CLOUDDRIVE_BASE}{api_path}"
+
+        data = await self._sm.post(
+            api_url,
+            headers={
+                **_HEADERS,
+                "Referer": CLOUDDRIVE_BASE,
+                "Origin": CLOUDDRIVE_BASE,
+            },
+            as_json=True,
+        )
+
+        if not data or "files" not in data:
+            _LOGGER.warning("CloudDrive API returned no files for %s: %s", slug, data)
+            return []
+
+        files = data["files"]
+        node_index = data.get("node_index", 0)
+        _LOGGER.info(
+            "CloudDrive: %d files for %s (node %d)",
+            len(files), slug, node_index,
+        )
+
+        episodes = []
+        for i, f in enumerate(files):
+            name = f.get("name", "")
+            mime = f.get("mimeType", "")
+            file_id = f.get("id", "")
+
+            if "folder" in mime:
+                continue
+            if not any(name.lower().endswith(ext) for ext in (".mkv", ".mp4", ".webm")):
+                continue
+
+            ep_num = 0
+            ep_match = search(r"(?:episode|ep)[\s._-]*(\d+)", name, 1)
+            if ep_match:
+                ep_num = int(ep_match.group(1))
+            else:
+                num_match = search(r"[\s._-](\d+)[\s._-]", name)
+                if num_match:
+                    ep_num = int(num_match.group(1))
+                else:
+                    ep_num = i + 1
+
+            episodes.append(
+                AnimeEpisode(
+                    ep_id=file_id,
+                    number=ep_num,
+                    title=name,
+                )
+            )
+
+        episodes.sort(key=lambda e: e.number)
+        seen = set()
+        unique = []
+        for ep in episodes:
+            if ep.number not in seen:
+                seen.add(ep.number)
+                unique.append(ep)
+
+        _LOGGER.info("CloudDrive: %d unique episodes for %s", len(unique), slug)
+
+        self._current_cd_link = cd_link
+        self._current_node_index = data.get("node_index", 0)
+        self._current_files = files
+
+        return unique
+
+    async def get_source(self, episode_id):
+        """Get direct download URL for a CloudDrive file.
+
+        episode_id is the file ID from the API.
+        """
+        node_index = self._current_node_index
+        files = self._current_files
+
+        file_info = None
+        if files:
+            for f in files:
+                if f.get("id") == episode_id:
+                    file_info = f
+                    break
+
+        name = file_info.get("name", "") if file_info else episode_id
+        b64_name = b64encode(name.encode()).decode()
+
+        dl_url = (
+            f"{CLOUDDRIVE_BASE}/?a=download&id={episode_id}"
+            f"&name={b64_name}&mode=stream&n={node_index}"
+        )
+
+        _LOGGER.info("CloudDrive download URL: %s (file=%s)", dl_url[:120], name)
+
+        return EpisodeSource(
+            url=dl_url,
+            headers={
+                "Referer": CLOUDDRIVE_BASE,
+                "User-Agent": _HEADERS["User-Agent"],
+            },
+        )
+
+    async def download_file(self, url, filepath, headers=None):
+        """Download a file from CloudDrive using the session manager."""
+        hdrs = headers or {
+            "Referer": CLOUDDRIVE_BASE,
+            "User-Agent": _HEADERS["User-Agent"],
+        }
+        return await self._sm.download(url, filepath, headers=hdrs)
 
     async def close(self):
         await self._sm.close()

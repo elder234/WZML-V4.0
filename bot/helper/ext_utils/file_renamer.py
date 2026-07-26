@@ -85,6 +85,9 @@ _CODEC_TAGS = {
     "vp9": "VP9",
 }
 
+# Image/overlay codecs to skip when scanning for video streams
+_IMAGE_CODECS = {"png", "mjpeg", "bmp", "gif", "tiff", "webp", "apng"}
+
 # Junk words to strip from titles
 _JUNK = compile(
     r"\b(1080p|720p|480p|2160p|4k|hd|sd|web-dl|webrip|bluray|blu-ray|"
@@ -150,7 +153,12 @@ class FileRenamer:
             data = loads(stdout.decode().strip())
             for stream in data.get("streams", []):
                 if stream.get("codec_type") == "video" and not result["resolution"]:
+                    codec = stream.get("codec_name", "")
+                    if codec.lower() in _IMAGE_CODECS:
+                        continue
                     height = int(stream.get("height", 0))
+                    if height < 100:
+                        continue
                     if height in _RES_MAP:
                         result["resolution"] = _RES_MAP[height]
                     elif height > 0:
@@ -159,7 +167,6 @@ class FileRenamer:
                             result["resolution"] = _RES_MAP[closest]
                         else:
                             result["resolution"] = f"{height}p"
-                    codec = stream.get("codec_name", "")
                     if codec:
                         result["codec"] = _match_tag(codec, _CODEC_TAGS) or codec.upper()
                 elif stream.get("codec_type") == "audio" and not result["audio"]:
@@ -294,7 +301,7 @@ class FileRenamer:
         meta = metadata or {}
         db = db_metadata or {}
         # Use metadata as fallback for filename-parsed values
-        resolution = parsed.get("resolution") or meta.get("resolution", "")
+        resolution = parsed.get("resolution") or db.get("resolution") or meta.get("resolution", "")
         codec = parsed.get("codec") or meta.get("codec", "")
         audio = parsed.get("audio") or meta.get("audio", "")
 
