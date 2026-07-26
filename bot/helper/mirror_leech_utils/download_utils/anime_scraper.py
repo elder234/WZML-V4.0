@@ -289,8 +289,9 @@ class AniWatchScraper:
             api_url,
             headers={
                 **_HEADERS,
-                "Referer": f"{MEGAPLAY_API}/",
+                "Referer": f"{embed_url}",
                 "Origin": MEGAPLAY_API,
+                "X-Requested-With": "XMLHttpRequest",
             },
             as_json=True,
         )

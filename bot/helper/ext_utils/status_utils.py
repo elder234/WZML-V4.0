@@ -305,7 +305,11 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
                 action_btns += f" 📂 /{BotCommands.SelectCommand[1]}_{task.gid()[:8]}"
 
         action_btns += f"  ❌ /{BotCommands.CancelTaskCommand[1]}_{task.gid()[:8]}"
-        msg += f"\n🔧 {task.engine}  •  {task.listener.mode[0]} → {task.listener.mode[1]}  •  {label}"
+        mode = task.listener.mode
+        if len(mode) >= 2:
+            msg += f"\n🔧 {task.engine}  •  {mode[0]} → {mode[1]}  •  {label}"
+        else:
+            msg += f"\n🔧 {task.engine}  •  {label}"
         msg += f"\n{action_btns}\n\n{'─' * 20}\n\n"
 
     if len(msg) == 0:

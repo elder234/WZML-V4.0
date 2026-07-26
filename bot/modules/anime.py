@@ -6,7 +6,7 @@ from pyrogram.filters import regex, user
 from pyrogram.handlers import CallbackQueryHandler
 
 from .. import DOWNLOAD_DIR, LOGGER
-from ..helper.common import TaskConfig
+from ..helper.listeners.task_listener import TaskListener
 from ..helper.ext_utils.bot_utils import new_task
 from ..helper.ext_utils.task_manager import pre_task_check
 from ..helper.mirror_leech_utils.download_utils.anime_scraper import (
@@ -60,7 +60,7 @@ class AnimeSession:
             self.message._client.remove_handler(*handler)
 
 
-class AnimeTask(TaskConfig):
+class AnimeTask(TaskListener):
     def __init__(self, client, message):
         self.message = message
         self.client = client
@@ -68,9 +68,8 @@ class AnimeTask(TaskConfig):
         self.is_leech = False
         self.is_cancelled = False
         self._is_anime = True
-
-    async def new_event(self):
-        pass
+        self.is_ytdlp = True
+        self.mode = ("#ytdlp", "#Leech" if self.is_leech else "#GDrive")
 
 
 @new_task
@@ -300,6 +299,9 @@ async def _download_episode(session, ep, source):
     listener.name = ep_name
     listener.is_leech = False
     listener.is_cancelled = False
+    listener.up_dest = listener.user_dict.get("GDRIVE_ID") or ""
+    listener.source_url = source.url
+    listener._set_mode_engine()
 
     path = f"{DOWNLOAD_DIR}{listener.mid}/"
 
