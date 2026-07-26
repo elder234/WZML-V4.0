@@ -104,6 +104,9 @@ class Config:
     HYDRA_IP = ""
     HYDRA_API_KEY = ""
     NAME_SWAP = ""
+    RENAME_UPLOADER = ""
+    RENAME_TEMPLATE = "{title}.{year}.{resolution}.{source}.{audio}.{codec}-{uploader}.{ext}"
+    RENAME_ENABLED = False
     OWNER_ID = 0
     QUEUE_ALL = 0
     QUEUE_DOWNLOAD = 0

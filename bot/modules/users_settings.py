@@ -69,6 +69,9 @@ ffset_options = [
 advanced_options = [
     "EXCLUDED_EXTENSIONS",
     "NAME_SWAP",
+    "RENAME_UPLOADER",
+    "RENAME_TEMPLATE",
+    "RENAME_ENABLED",
     "YT_DLP_OPTIONS",
     "UPLOAD_PATHS",
     "USER_COOKIE_FILE",
@@ -164,6 +167,27 @@ user_settings_text = {
 <b>Full Documentation Guide</b> <a href="https://t.me/WZML_X/77">Click Here</a>
 ┖ <b>Time Left :</b> <code>60 sec</code>
 """,
+    ),
+    "RENAME_UPLOADER": (
+        "",
+        "",
+        "<i>Send your uploader name (e.g., StarkzFlix). This will be used in renamed files.</i> \n┖ <b>Time Left :</b> <code>60 sec</code>",
+    ),
+    "RENAME_TEMPLATE": (
+        "",
+        "",
+        """<i>Send rename template. Available variables: {title} {year} {season} {episode} {resolution} {source} {language} {audio} {codec} {uploader} {ext}</i>
+
+<b>Default:</b> <code>{title}.{year}.{resolution}.{source}.{audio}.{codec}-{uploader}.{ext}</code>
+<b>Minimal:</b> <code>{title}.{resolution}.{source}-{uploader}.{ext}</code>
+<b>Anime:</b> <code>{title} - {episode}.{resolution}.{source}-{uploader}.{ext}</code>
+
+┖ <b>Time Left :</b> <code>60 sec</code>""",
+    ),
+    "RENAME_ENABLED": (
+        "",
+        "",
+        "<i>Send 'yes' to enable auto-rename or 'no' to disable.</i> \n┖ <b>Time Left :</b> <code>60 sec</code>",
     ),
     "YT_DLP_OPTIONS": (
         "",
@@ -1024,6 +1048,19 @@ async def get_user_settings(from_user, stype="main"):
             "YT Cookie File", f"userset {user_id} menu USER_COOKIE_FILE"
         )
 
+        buttons.data_button("Rename Uploader", f"userset {user_id} menu RENAME_UPLOADER")
+        rn_uploader = user_dict.get("RENAME_UPLOADER", "") or Config.RENAME_UPLOADER or "Not Set"
+
+        buttons.data_button("Rename Template", f"userset {user_id} menu RENAME_TEMPLATE")
+        rn_template = user_dict.get("RENAME_TEMPLATE", "") or Config.RENAME_TEMPLATE or "Default"
+
+        rn_enabled = user_dict.get("RENAME_ENABLED", Config.RENAME_ENABLED)
+        rn_enabled_text = "Enabled" if rn_enabled else "Disabled"
+        buttons.data_button(
+            f"Rename: {rn_enabled_text}",
+            f"userset {user_id} tog RENAME_ENABLED {'f' if rn_enabled else 't'}",
+        )
+
         buttons.data_button("Back", f"userset {user_id} back", "footer")
         buttons.data_button(
             "Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER
@@ -1031,13 +1068,17 @@ async def get_user_settings(from_user, stype="main"):
         btns = buttons.build_menu(2)
 
         text = f"""⌬ <b>Advanced Settings :</b>
-┟ <b>Name</b> → {user_name}
+┌ <b>Name</b> → {user_name}
 ┃
-┠ <b>Auto Name Swaps</b> → {ns_msg}
-┠ <b>Excluded Extensions</b> → <code>{ex_ex}</code>
-┠ <b>Upload Paths</b> → <b>{upload_paths}</b>
-┠ <b>YT-DLP Options</b> → <code>{ytopt}</code>
-┖ <b>YT User Cookie File</b> → <b>{user_cookie_msg}</b>"""
+├ <b>Auto Name Swaps</b> → {ns_msg}
+├ <b>Excluded Extensions</b> → <code>{ex_ex}</code>
+├ <b>Upload Paths</b> → <b>{upload_paths}</b>
+├ <b>YT-DLP Options</b> → <code>{ytopt}</code>
+├ <b>YT User Cookie File</b> → <b>{user_cookie_msg}</b>
+┃
+├ <b>Rename Uploader</b> → <code>{rn_uploader}</code>
+├ <b>Rename Template</b> → <code>{rn_template}</code>
+┖ <b>Rename</b> → <b>{rn_enabled_text}</b>"""
     elif stype == "yttools":
         buttons.data_button("YT Description", f"userset {user_id} menu YT_DESP")
         yt_desp_val = user_dict.get(
@@ -1569,6 +1610,8 @@ async def edit_user_settings(client, query):
             back_to = "general"
         elif data[3] == "GOFILE_AUTO_CREATE_FOLDER":
             back_to = "gofile"
+        elif data[3] == "RENAME_ENABLED":
+            back_to = "advanced"
         else:
             back_to = "leech"
         await update_user_settings(query, stype=back_to)

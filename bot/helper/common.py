@@ -103,6 +103,7 @@ class TaskConfig:
         self.category = ""
         self.index_link = ""
         self.name_swap = ""
+        self.rename = ""
         self.thumbnail_layout = ""
         self.folder_name = ""
         self.split_size = 0
@@ -238,6 +239,14 @@ class TaskConfig:
         )
         if self.name_swap:
             self.name_swap = [x.split(":") for x in self.name_swap.split("|")]
+        # Rename: -rn flag overrides, otherwise use user/global settings
+        if not self.rename:
+            rn_enabled = self.user_dict.get("RENAME_ENABLED", False)
+            if rn_enabled:
+                self.rename = (
+                    self.user_dict.get("RENAME_TEMPLATE", "")
+                    or (Config.RENAME_TEMPLATE if "RENAME_TEMPLATE" not in self.user_dict else "")
+                )
         self.excluded_extensions = self.user_dict.get("EXCLUDED_EXTENSIONS") or (
             excluded_extensions
             if "EXCLUDED_EXTENSIONS" not in self.user_dict

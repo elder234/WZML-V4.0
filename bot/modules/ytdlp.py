@@ -327,6 +327,7 @@ class YtDlp(TaskListener):
             "-ca": "",
             "-cv": "",
             "-ns": "",
+            "-rn": "",
             "-tl": "",
             "-ff": set(),
         }
@@ -380,6 +381,7 @@ class YtDlp(TaskListener):
         self.convert_audio = args["-ca"]
         self.convert_video = args["-cv"]
         self.name_swap = args["-ns"]
+        self.rename = args["-rn"]
         self.hybrid_leech = args["-hl"]
         self.thumbnail_layout = args["-tl"]
         self.as_doc = args["-doc"]

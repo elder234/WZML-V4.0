@@ -28,6 +28,7 @@ from ...core.tg_client import TgClient
 from ...core.config_manager import Config
 from ...core.torrent_manager import TorrentManager
 from ..ext_utils.bot_utils import sync_to_async
+from ..ext_utils.file_renamer import FileRenamer
 from ..ext_utils.links_utils import encode_slink
 from ..ext_utils.db_handler import database
 from ..ext_utils.files_utils import (
@@ -284,6 +285,17 @@ class TaskListener(TaskConfig):
                 return
             self.is_file = await aiopath.isfile(up_path)
             self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
+
+        if self.rename:
+            uploader = self.user_dict.get("RENAME_UPLOADER", "") or Config.RENAME_UPLOADER
+            renamer = FileRenamer(uploader=uploader, template=self.rename)
+            new_path, new_name = await renamer.rename(up_path)
+            if new_path and new_path != up_path:
+                up_path = new_path
+                if self.is_cancelled:
+                    return
+                self.is_file = await aiopath.isfile(up_path)
+                self.name = new_name
 
         if self.screen_shots:
             up_path = await self.generate_screenshots(up_path)

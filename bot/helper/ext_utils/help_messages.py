@@ -228,6 +228,19 @@ NOTE: You must add \ before any character, those are the characters: \^$.|?*+()[
 8. \text\ will get replaced by text with sensitive case
 """
 
+rename = """<b>File Rename</b>: -rn
+/cmd link -rn (use saved template from user settings)
+/cmd link -rn "{title}.{year}.{resolution}.{source}-{uploader}.{ext}" (custom template)
+
+Available variables: {title} {year} {season} {episode} {resolution} {source} {language} {audio} {codec} {uploader} {ext}
+
+Examples:
+1. /leech link -rn (auto-rename using saved template)
+2. /leech link -rn "{title} - {episode}.{resolution}.{source}-{uploader}.{ext}" (anime format)
+3. /mirror link -rn "{title}.{resolution}-{uploader}.{ext}" (minimal format)
+
+Requires RENAME_ENABLED to be turned on in user settings.
+
 transmission = """<b>Tg transmission</b>: -hl -ut -bt
 /cmd link -hl (both: user for >2GB, bot for ≤2GB)
 /cmd link -bt (bot only)
@@ -307,6 +320,7 @@ YT_HELP_DICT = {
     "Leech-Type": leech_as,
     "FFmpeg-Cmds": ffmpeg_cmds,
     "Metadata": metadata,
+    "File-Rename": rename,
 }
 
 MIRROR_HELP_DICT = {
@@ -338,6 +352,7 @@ MIRROR_HELP_DICT = {
     "Leech-Type": leech_as,
     "FFmpeg-Cmds": ffmpeg_cmds,
     "Metadata": metadata,
+    "File-Rename": rename,
 }
 
 CLONE_HELP_DICT = {
