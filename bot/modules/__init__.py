@@ -50,6 +50,7 @@ from .status import task_status, status_pages
 from .users_settings import get_users_settings, edit_user_settings, send_user_settings
 from .gen_pyro_sess import gen_pyro_string
 from .ytdlp import ytdl, ytdl_leech
+from .anime import anime_search, anime_callback
 
 __all__ = [
     "send_bot_settings",
@@ -126,4 +127,6 @@ __all__ = [
     "gen_pyro_string",
     "ytdl",
     "ytdl_leech",
+    "anime_search",
+    "anime_callback",
 ]

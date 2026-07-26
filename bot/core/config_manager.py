@@ -66,6 +66,9 @@ class Config:
     IMG_SOURCES = ["wallpaperflare"]
     INC_TASK_NOTIFY = True
     INC_TASK_RESUME = True
+    ANIWATCH_BASE = "https://aniwatchtv.to"
+    ANIME_TOKI_BASE = ""
+    ANIME_DEFAULT_CATEGORY = "sub"
     INDEX_URL = ""
     IS_TEAM_DRIVE = False
     JD_EMAIL = ""

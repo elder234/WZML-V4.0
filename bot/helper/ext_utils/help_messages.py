@@ -419,6 +419,7 @@ def get_bot_commands():
         "Stats": "Bot, OS, Repo & System full Statistics",
         "Rss": "User RSS Management Settings",
         "IMDB": "[query] or ttxxxxxx Get IMDB info",
+        "Anime": "[query] Search & download anime from AniWatch",
         "CancelAll": "Cancel all Tasks on the Bot",
         "Help": "Detailed help usage of the WZ Bot",
         "BotSet": "[SUDO] Bot Management Settings",

@@ -403,6 +403,13 @@ async def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
+            anime_search,
+            filters=command(BotCommands.AnimeCommand, case_sensitive=True)
+            & CustomFilters.authorized,
+        )
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
             hydra_search,
             filters=command(BotCommands.NzbSearchCommand, case_sensitive=True)
             & CustomFilters.authorized,

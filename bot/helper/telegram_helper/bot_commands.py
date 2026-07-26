@@ -53,6 +53,7 @@ class BotCommands:
         "BotSet": ["bsetting", "bs"],
         "UserSet": ["usetting", "us"],
         "Select": ["select", "sel"],
+        "Anime": ["anime", "an"],
         "NzbSearch": ["nzbsearch", "ns"],
         "GenPyroSess": "exportsession",
         "CategorySelect": ["category", "ctsel"],
