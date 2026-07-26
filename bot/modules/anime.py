@@ -71,6 +71,9 @@ class AnimeTask(TaskListener):
         self.is_cancelled = False
         self._is_anime = True
         self.is_ytdlp = True
+        self.hybrid_leech = False
+        self.bot_trans = False
+        self.user_trans = False
         self.db_metadata = None
         self.rename = Config.RENAME_TEMPLATE
         self.mode = ("#ytdlp", "#Leech" if self.is_leech else "#GDrive")
