@@ -50,6 +50,7 @@ class AnimeSession:
         self._time = time()
 
     async def _event_handler(self):
+        self.event.clear()
         pfunc = partial(anime_callback, obj=self)
         LOGGER.info("Registering anime callback handler for user %s", self.user_id)
         handler = TgClient.bot.add_handler(
