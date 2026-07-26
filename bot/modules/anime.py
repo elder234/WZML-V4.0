@@ -83,6 +83,7 @@ class AnimeTask(TaskListener):
         self.user_trans = False
         self.db_metadata = None
         self.rename = Config.RENAME_TEMPLATE
+        self.same_dir = {}
         self.mode = ("#ytdlp", "#Leech" if self.is_leech else "#GDrive")
 
 
