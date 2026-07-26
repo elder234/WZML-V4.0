@@ -567,6 +567,25 @@ class AnimeTokiScraper:
             if len(results) >= 10:
                 break
 
+        if not results:
+            for match in finditer(
+                r'<a\s+href="([^"]*(?:animetoki\.com/[^/]+(?:/[^/]+)?))"[^>]*>'
+                r'([^<]{3,80})</a>',
+                html,
+            ):
+                href = match.group(1)
+                title = match.group(2).strip()
+                if "/episode/" in href or not title:
+                    continue
+                slug = href.rstrip("/").split("/")[-1]
+                if slug in ("", "tag", "category", "page"):
+                    continue
+                results.append(
+                    AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                )
+                if len(results) >= 10:
+                    break
+
         return results
 
     async def get_episodes(self, slug):
@@ -617,7 +636,7 @@ class AnimeTokiScraper:
             return None
 
         video_match = search(
-            r'<video[^>]*class="js-player"[^>]*>.*?'
+            r'<video[^>]*>.*?'
             r'<source\s+src="([^"]+)"',
             html,
             16,
@@ -625,6 +644,16 @@ class AnimeTokiScraper:
         if not video_match:
             video_match = search(
                 r'<source\s+src="(//[^"]+\.(?:mkv|mp4|webm)[^"]*)"',
+                html,
+            )
+        if not video_match:
+            video_match = search(
+                r'<source\s+src="(https?://[^"]+\.(?:mkv|mp4|webm)[^"]*)"',
+                html,
+            )
+        if not video_match:
+            video_match = search(
+                r'"(https?://[^"]+\.(?:mkv|mp4|webm))"',
                 html,
             )
         if not video_match:

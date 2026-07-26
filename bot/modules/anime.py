@@ -160,11 +160,6 @@ async def anime_callback(_, query, obj):
             obj.event.set()
         return
 
-    if action == "custom":
-        await edit_message(message, "Send episode range (e.g. `100-120` or `5`):")
-        obj.step = "custom_input"
-        return
-
 
 async def _show_episodes(obj, message):
     if obj.source == "animetoki":
@@ -195,7 +190,6 @@ async def _show_episodes(obj, message):
             buttons.data_button(f"{start}-{end}", f"anime range {start}-{end}")
         buttons.data_button("All", "anime range all")
 
-    buttons.data_button("Custom", "anime custom")
     buttons.data_button("Cancel", "anime cancel", "footer")
 
     obj._reply_to = await edit_message(message, text, buttons.build_menu(2))
@@ -221,7 +215,6 @@ async def _show_episode_selection(obj, message):
             buttons.data_button(f"{start}-{end}", f"anime range {start}-{end}")
         buttons.data_button("All", "anime range all")
 
-    buttons.data_button("Custom", "anime custom")
     buttons.data_button("Cancel", "anime cancel", "footer")
 
     obj._reply_to = await edit_message(message, text, buttons.build_menu(3))
@@ -319,6 +312,10 @@ async def _perform_search(session):
     await edit_message(searching_msg, result_text, buttons.build_menu(1))
     await session._event_handler()
 
+    if session.step == "cancelled":
+        _user_sessions.pop(session.user_id, None)
+        return
+
     if session.step == "download" and session.selected_eps:
         await _start_anime_download(session)
 
@@ -360,6 +357,7 @@ async def _download_episode(session, ep, source):
     listener.is_leech = True
     listener.is_cancelled = False
     listener.source_url = source.url
+    listener.mode = ("#ytdlp", "#Leech")
     listener._set_mode_engine()
 
     db_metadata = {
@@ -401,10 +399,9 @@ async def _download_episode(session, ep, source):
     ydl.opts["outtmpl"] = {"default": f"{path}/{ep_name}.%(ext)s"}
     ydl.opts["writethumbnail"] = False
 
-    if source.url.endswith(".m3u8") or "/m3u8" in source.url or source.url.startswith("http"):
-        if ".m3u8" in source.url or "/m3u8" in source.url:
-            ydl.opts["downloader"] = "ffmpeg"
-            ydl.opts["downloader_args"] = {"ffmpeg": ["-hls_use_mpegts", ""]}
+    if ".m3u8" in source.url or "/m3u8" in source.url:
+        ydl.opts["downloader"] = "ffmpeg"
+        ydl.opts["downloader_args"] = {"ffmpeg": ["-hls_use_mpegts", ""]}
 
     if source.resolution:
         LOGGER.info("EP%s resolution: %s", ep.number, source.resolution)
