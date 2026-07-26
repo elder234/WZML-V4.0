@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse, quote
 from niquests.packages.urllib3.util.retry import Retry
 from uuid import uuid4
 from base64 import b64decode, b64encode
-from random import choice
+from itertools import cycle
 from curl_cffi import Session as CurlSession
 
 from Cryptodome.Cipher import AES
@@ -2442,20 +2442,26 @@ def _rd_encrypt(data: str) -> str:
     return quote(b64encode(payload.encode()).decode())
 
 
+_rd_worker_cycle = None
+
+
 def _rd_wrap_worker_url(direct_url: str) -> str:
     """Encrypt a direct RD download URL and wrap it in a CF Worker URL.
     Returns: https://worker-host/filename?f=encrypted_blob
-    Same pattern as the original alphadebrid bot."""
+    Rotates workers round-robin for even load distribution."""
+    global _rd_worker_cycle
     workers = [w.strip().rstrip("/") for w in Config.CF_WORKER_URL.split(",") if w.strip()]
     if not workers:
         raise DirectDownloadLinkException("ERROR: CF_WORKER_URL must have at least one worker URL")
-    worker_host = choice(workers)
+    if _rd_worker_cycle is None or _rd_worker_cycle[0] != tuple(workers):
+        _rd_worker_cycle = (tuple(workers), cycle(workers))
+    worker_host = next(_rd_worker_cycle[1])
     if worker_host.startswith("http://") or worker_host.startswith("https://"):
-        # strip scheme for URL construction
         worker_host = worker_host.split("://", 1)[1]
     filename_match = findall(_fnr, direct_url, IGNORECASE | MULTILINE)
     filename = filename_match[0] if filename_match else "download"
     encrypted = _rd_encrypt(direct_url)
+    _LOGGER.info(f"RD worker rotation: {worker_host}")
     return f"https://{worker_host}/{filename}?f={encrypted}"
 
 
