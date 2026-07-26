@@ -1,5 +1,6 @@
 from asyncio import sleep
 from base64 import b64decode
+from json import loads as _json_loads
 from logging import getLogger
 from re import finditer, search, sub
 
@@ -348,6 +349,8 @@ class AniWatchScraper:
     async def get_streaming_source(self, embed_url):
         if "megaplay" in embed_url or "1anime.site/megaplay" in embed_url:
             return await self._extract_megaplay(embed_url)
+        if "megaflix" in embed_url:
+            return await self._extract_megaflix(embed_url)
         return await self._extract_megacloud(embed_url)
 
     async def _extract_megaplay(self, embed_url):
@@ -406,6 +409,91 @@ class AniWatchScraper:
             subtitles=subtitles,
             intro_skip=intro_skip,
             outro_skip=outro_skip,
+        )
+        await source.parse_master_playlist(self._sm)
+        return source
+
+    async def _extract_megaflix(self, embed_url):
+        html = await self._sm.fetch(
+            embed_url,
+            headers={
+                **_HEADERS,
+                "Referer": f"{ANIWATCH_BASE}/",
+                "Origin": ANIWATCH_BASE,
+            },
+        )
+        if not html:
+            return None
+
+        payload_match = search(
+            r'<script[^>]*id="player-payload"[^>]*>\s*({[^<]+})\s*</script>',
+            html,
+            16,
+        )
+        if not payload_match:
+            payload_match = search(
+                r'"sourceUrl"\s*:\s*"([^"]+)"',
+                html,
+            )
+            if payload_match:
+                source_url = payload_match.group(1)
+            else:
+                _LOGGER.error("Could not find source URL in megaflix embed")
+                return None
+        else:
+            try:
+                payload = _json_loads(payload_match.group(1))
+                source_url = payload.get("sourceUrl", "")
+            except Exception:
+                _LOGGER.error("Could not parse megaflix player payload JSON")
+                return None
+
+        if not source_url:
+            _LOGGER.error("Empty sourceUrl in megaflix embed")
+            return None
+
+        base = f"https://megaflix.buzz"
+        source_api = source_url if source_url.startswith("http") else base + source_url
+
+        source_data = await self._sm.fetch(
+            source_api,
+            headers={
+                **_HEADERS,
+                "Referer": f"{embed_url}",
+                "Origin": base,
+                "Accept": "application/json",
+            },
+            as_json=True,
+        )
+
+        if not source_data or not source_data.get("source"):
+            _LOGGER.error("Megaflix source API returned no data: %s", source_data)
+            return None
+
+        m3u8_url = source_data["source"]
+        if not m3u8_url:
+            return None
+
+        subtitles = []
+        for track in source_data.get("tracks", []):
+            if track.get("kind") == "captions":
+                subtitles.append(
+                    {
+                        "url": track["file"],
+                        "label": track.get("label", "English"),
+                        "lang": track.get("srclang", "en"),
+                    }
+                )
+
+        _LOGGER.info("Megaflix source resolved: %s", m3u8_url[:80])
+
+        source = EpisodeSource(
+            url=m3u8_url,
+            headers={
+                "Referer": f"{base}/",
+                "User-Agent": _HEADERS["User-Agent"],
+            },
+            subtitles=subtitles,
         )
         await source.parse_master_playlist(self._sm)
         return source
@@ -622,6 +710,60 @@ class AnimeTokiScraper:
                 episodes.append(
                     AnimeEpisode(ep_id=ep_url, number=number, title=ep_slug)
                 )
+
+        if not episodes:
+            title_from_slug = slug.replace("-", " ").replace("download all seasons", "").strip()
+            search_url = f"{ANIMETOKI_BASE}/?s={title_from_slug}+english"
+            _LOGGER.info("No episodes on page, searching: %s", search_url)
+            search_html = await self._sm.fetch(search_url, headers=_HEADERS)
+            if search_html:
+                for match in finditer(
+                    r'<a\s+href="([^"]+)"[^>]*>\s*'
+                    r'<h2[^>]*class="post-title[^"]*"[^>]*>\s*([^<]+)</h2>',
+                    search_html,
+                    16,
+                ):
+                    href = match.group(1)
+                    title = match.group(2).strip()
+                    if "/episode/" not in href:
+                        continue
+                    ep_match = search(r'episode[- ](\d+)', href, 1)
+                    if not ep_match:
+                        ep_match = search(r'Episode\s+(\d+)', title, 1)
+                    if ep_match:
+                        number = int(ep_match.group(1))
+                        full_url = href if href.startswith("http") else f"{ANIMETOKI_BASE}/{href.lstrip('/')}"
+                        episodes.append(
+                            AnimeEpisode(ep_id=full_url, number=number, title=title)
+                        )
+
+                if not episodes:
+                    for match in finditer(
+                        r'href="([^"]*episode[^"]*)"[^>]*>\s*([^<]+)</a>',
+                        search_html,
+                        16,
+                    ):
+                        href = match.group(1)
+                        title = match.group(2).strip()
+                        if "/episode/" not in href:
+                            continue
+                        ep_match = search(r'episode[- ](\d+)', href, 1)
+                        if not ep_match:
+                            ep_match = search(r'Episode\s+(\d+)', title, 1)
+                        if ep_match:
+                            number = int(ep_match.group(1))
+                            full_url = href if href.startswith("http") else f"{ANIMETOKI_BASE}/{href.lstrip('/')}"
+                            episodes.append(
+                                AnimeEpisode(ep_id=full_url, number=number, title=title)
+                            )
+
+        seen = set()
+        unique = []
+        for ep in episodes:
+            if ep.number not in seen:
+                seen.add(ep.number)
+                unique.append(ep)
+        episodes = unique
 
         episodes.sort(key=lambda e: e.number)
         _LOGGER.info("Found %d episodes for animetoki %s", len(episodes), slug)
