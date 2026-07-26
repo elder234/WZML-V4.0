@@ -1,4 +1,4 @@
-from asyncio import sleep
+from asyncio import Semaphore, ensure_future, gather, sleep
 from logging import getLogger
 from os import path as ospath, walk
 from re import match as re_match, sub as re_sub
@@ -456,6 +456,7 @@ class TelegramUploader:
         res = await self._msg_to_reply()
         if not res:
             return
+        upload_tasks = []
         seq_idx = 0
         # Collect all files first, then sort largest-first
         all_upload_files = []
@@ -483,6 +484,9 @@ class TelegramUploader:
         # Sort by size descending — largest files upload first
         all_upload_files.sort(key=lambda x: x[0], reverse=True)
 
+        # Concurrent uploads with semaphore for speed
+        _upload_sem = Semaphore(3)
+
         for f_size, file_, f_path, dirpath in all_upload_files:
             if self._listener.is_cancelled:
                 return
@@ -508,9 +512,21 @@ class TelegramUploader:
                     self._user_session = True
                 self._last_msg_in_group = False
                 self._upload_seq.append(None)
-                await self._upload_file_task(
-                    file_, f_path, dirpath, self._user_session, seq_idx
+
+                async def _throttled_upload(file_, f_path, dirpath, user_session, idx):
+                    async with _upload_sem:
+                        if self._listener.is_cancelled:
+                            return None
+                        return await self._upload_file_task(
+                            file_, f_path, dirpath, user_session, idx
+                        )
+
+                task = ensure_future(
+                    _throttled_upload(
+                        file_, f_path, dirpath, self._user_session, seq_idx
+                    )
                 )
+                upload_tasks.append(task)
                 seq_idx += 1
             except Exception as err:
                 LOGGER.error(f"{err}. Path: {f_path}", exc_info=True)
@@ -518,6 +534,17 @@ class TelegramUploader:
                 self._corrupted += 1
                 if self._listener.is_cancelled:
                     return
+        if upload_tasks:
+            results = await gather(*upload_tasks, return_exceptions=True)
+            if self._listener.is_cancelled:
+                for task in upload_tasks:
+                    if not task.done():
+                        task.cancel()
+                return
+            for r in results:
+                if isinstance(r, Exception):
+                    LOGGER.error(f"Upload task error: {r}")
+            await sleep(1)
         for key, value in list(self._media_dict.items()):
             for subkey, msgs in list(value.items()):
                 if len(msgs) > 1:
