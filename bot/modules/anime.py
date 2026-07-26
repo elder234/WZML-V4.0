@@ -7,6 +7,7 @@ from pyrogram.handlers import CallbackQueryHandler
 
 from .. import DOWNLOAD_DIR, LOGGER
 from ..core.config_manager import Config
+from ..core.tg_client import TgClient
 from ..helper.listeners.task_listener import TaskListener
 from ..helper.ext_utils.bot_utils import new_task
 from ..helper.ext_utils.task_manager import pre_task_check
@@ -50,19 +51,21 @@ class AnimeSession:
 
     async def _event_handler(self):
         pfunc = partial(anime_callback, obj=self)
-        handler = self.message._client.add_handler(
+        LOGGER.info("Registering anime callback handler for user %s", self.user_id)
+        handler = TgClient.bot.add_handler(
             CallbackQueryHandler(
                 pfunc, filters=regex("^anime") & user(self.user_id)
             ),
             group=-1,
         )
+        LOGGER.info("Handler registered: %s", handler)
         try:
             await wait_for(self.event.wait(), timeout=self._timeout)
         except Exception:
             await edit_message(self._reply_to, "Timed out. Anime session cancelled.")
             self.event.set()
         finally:
-            self.message._client.remove_handler(*handler)
+            TgClient.bot.remove_handler(*handler)
 
 
 class AnimeTask(TaskListener):
@@ -86,6 +89,7 @@ class AnimeTask(TaskListener):
 async def anime_callback(_, query, obj):
     data = query.data.split()
     message = query.message
+    LOGGER.info("Anime callback fired: data=%s user=%s", data, query.from_user.id)
     await query.answer()
 
     action = data[1]
@@ -351,7 +355,7 @@ async def _start_anime_download(session):
 async def _download_episode(session, ep, source):
     ep_name = f"{session.anime_title} - EP{ep.number:02d}"
 
-    listener = AnimeTask(session.message._client, session.message)
+    listener = AnimeTask(TgClient.bot, session.message)
     listener.link = source.url
     listener.name = ep_name
     listener.is_leech = True
