@@ -535,6 +535,134 @@ class AniWatchScraper:
         await self._sm.close()
 
 
+ANIMETOKI_BASE = "https://animetoki.com"
+ANIMETOKI_WORKERS = "https://ongoing-at.25002.workers.dev"
+
+
+class AnimeTokiScraper:
+    """Scraper for animetoki.com — self-hosted CF Workers."""
+
+    def __init__(self):
+        self._sm = SessionManager()
+
+    async def search(self, query):
+        url = f"{ANIMETOKI_BASE}/?s={query}"
+        html = await self._sm.fetch(url, headers=_HEADERS)
+        if not html:
+            return []
+
+        results = []
+        for match in finditer(
+            r'<h2[^>]*class="post-title[^"]*"[^>]*>\s*<a\s+href="([^"]+)"[^>]*>([^<]+)</a>',
+            html,
+        ):
+            href = match.group(1)
+            title = match.group(2).strip()
+            if "/episode/" in href or not title:
+                continue
+            slug = href.rstrip("/").split("/")[-1]
+            results.append(
+                AnimeSearchResult(title, slug, "", True, True, 0, slug)
+            )
+            if len(results) >= 10:
+                break
+
+        return results
+
+    async def get_episodes(self, slug):
+        url = f"{ANIMETOKI_BASE}/{slug}/"
+        html = await self._sm.fetch(url, headers=_HEADERS)
+        if not html:
+            return []
+
+        episodes = []
+        for match in finditer(
+            r'<a[^>]*href="([^"]*?/episode/([^"]+))"[^>]*>\s*'
+            r'(?:<span[^>]*>)?Ep(?:isode)?\s*(\d+)',
+            html,
+        ):
+            ep_url = match.group(1)
+            ep_slug = match.group(2)
+            number = int(match.group(3))
+            episodes.append(
+                AnimeEpisode(
+                    ep_id=ep_url,
+                    number=number,
+                    title=ep_slug,
+                )
+            )
+
+        if not episodes:
+            for match in finditer(
+                r'href="([^"]*?/episode/([^"]*?episode[- ](\d+)[^"]*))"',
+                html,
+            ):
+                ep_url = match.group(1)
+                ep_slug = match.group(2)
+                number = int(match.group(3))
+                episodes.append(
+                    AnimeEpisode(ep_id=ep_url, number=number, title=ep_slug)
+                )
+
+        episodes.sort(key=lambda e: e.number)
+        _LOGGER.info("Found %d episodes for animetoki %s", len(episodes), slug)
+        return episodes
+
+    async def get_source(self, episode_url):
+        if not episode_url.startswith("http"):
+            episode_url = f"{ANIMETOKI_BASE}/{episode_url.lstrip('/')}"
+
+        html = await self._sm.fetch(episode_url, headers=_HEADERS)
+        if not html:
+            return None
+
+        video_match = search(
+            r'<video[^>]*class="js-player"[^>]*>.*?'
+            r'<source\s+src="([^"]+)"',
+            html,
+            16,
+        )
+        if not video_match:
+            video_match = search(
+                r'<source\s+src="(//[^"]+\.(?:mkv|mp4|webm)[^"]*)"',
+                html,
+            )
+        if not video_match:
+            _LOGGER.error("No video source found on %s", episode_url)
+            return None
+
+        video_url = video_match.group(1)
+        if video_url.startswith("//"):
+            video_url = "https:" + video_url
+
+        sub_match = search(
+            r'<track[^>]*src="([^"]+\.vtt[^"]*)"',
+            html,
+        )
+        subtitles = []
+        if sub_match:
+            sub_url = sub_match.group(1)
+            if sub_url.startswith("//"):
+                sub_url = "https:" + sub_url
+            subtitles.append({
+                "url": sub_url,
+                "label": "English",
+                "lang": "en",
+            })
+
+        _LOGGER.info("Animetoki source resolved: %s", video_url[:100])
+
+        return EpisodeSource(
+            url=video_url,
+            headers={"Referer": f"{ANIMETOKI_BASE}/"},
+            subtitles=subtitles,
+            resolution="1920x1080",
+        )
+
+    async def close(self):
+        await self._sm.close()
+
+
 async def anilist_search(query):
     """Search AniList for anime by title. Returns dict of first match."""
     gql = """

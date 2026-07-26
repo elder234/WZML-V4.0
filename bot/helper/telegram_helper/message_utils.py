@@ -11,6 +11,7 @@ from pyrogram.errors import (
     MessageEmpty,
     MessageTooLong,
     MessageDeleteForbidden,
+    MessageIdInvalid,
     ReplyMarkupInvalid,
     PhotoInvalidDimensions,
     WebpageCurlFailed,
@@ -198,7 +199,7 @@ async def edit_message(message, text, buttons=None, block=True, photo=None):
             disable_web_page_preview=True,
             reply_markup=buttons,
         )
-    except (MessageNotModified, MessageEmpty):
+    except (MessageNotModified, MessageEmpty, MessageIdInvalid):
         pass
     except ReplyMarkupInvalid as rmi:
         LOGGER.warning(str(rmi))
@@ -278,7 +279,7 @@ async def delete_message(*args):
         return
     results = await gather(*tasks, return_exceptions=True)
     for result in results:
-        if isinstance(result, MessageDeleteForbidden):
+        if isinstance(result, (MessageDeleteForbidden, MessageIdInvalid)):
             pass
         elif isinstance(result, Exception):
             LOGGER.error(result)
@@ -409,6 +410,12 @@ async def update_status_message(sid, force=False):
             message = await edit_message(
                 status_dict[sid]["message"], text, buttons, block=False, photo="IMAGES"
             )
+            if message is None:
+                del status_dict[sid]
+                if obj := intervals["status"].get(sid):
+                    obj.cancel()
+                    del intervals["status"][sid]
+                return
             if isinstance(message, str):
                 if message.startswith("Telegram says: [40"):
                     del status_dict[sid]

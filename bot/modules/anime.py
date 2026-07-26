@@ -12,6 +12,7 @@ from ..helper.ext_utils.bot_utils import new_task
 from ..helper.ext_utils.task_manager import pre_task_check
 from ..helper.mirror_leech_utils.download_utils.anime_scraper import (
     AniWatchScraper,
+    AnimeTokiScraper,
     anilist_episode_info,
 )
 from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import YoutubeDLHelper
@@ -24,6 +25,7 @@ from ..helper.telegram_helper.message_utils import (
 )
 
 _anime_scraper = AniWatchScraper()
+_animetoki_scraper = AnimeTokiScraper()
 
 _user_sessions = {}
 
@@ -39,6 +41,7 @@ class AnimeSession:
         self.episodes = []
         self.selected_eps = []
         self.category = "sub"
+        self.source = "aniwatch"
         self.event = Event()
         self.step = "search"
         self._reply_to = None
@@ -88,7 +91,14 @@ async def anime_callback(_, query, obj):
     action = data[1]
 
     if action == "cancel":
+        obj.step = "cancelled"
         await edit_message(message, "Anime search cancelled.")
+        obj.event.set()
+        return
+
+    if action == "src":
+        obj.source = data[2]
+        obj.step = "source_selected"
         obj.event.set()
         return
 
@@ -101,17 +111,20 @@ async def anime_callback(_, query, obj):
             obj.step = "episodes"
             await edit_message(message, f"Fetching details for **{result.title}**...")
             try:
-                details = await _anime_scraper.get_anime_details(result.slug)
-                if details and details.get("anime_id"):
-                    obj.anime_id = details["anime_id"]
-                    result.sub = details.get("sub", result.sub)
-                    result.dub = details.get("dub", result.dub)
-                    result.total_eps = details.get("total_eps", result.total_eps)
+                if obj.source == "animetoki":
+                    obj.episodes = await _animetoki_scraper.get_episodes(result.slug)
                 else:
-                    await edit_message(message, "Failed to fetch anime details.")
-                    obj.event.set()
-                    return
-                obj.episodes = await _anime_scraper.get_episodes(obj.anime_id)
+                    details = await _anime_scraper.get_anime_details(result.slug)
+                    if details and details.get("anime_id"):
+                        obj.anime_id = details["anime_id"]
+                        result.sub = details.get("sub", result.sub)
+                        result.dub = details.get("dub", result.dub)
+                        result.total_eps = details.get("total_eps", result.total_eps)
+                    else:
+                        await edit_message(message, "Failed to fetch anime details.")
+                        obj.event.set()
+                        return
+                    obj.episodes = await _anime_scraper.get_episodes(obj.anime_id)
             except Exception as e:
                 LOGGER.error("Failed to fetch episodes: %s", e)
                 await edit_message(message, f"Failed to fetch episodes: {e}")
@@ -154,6 +167,11 @@ async def anime_callback(_, query, obj):
 
 
 async def _show_episodes(obj, message):
+    if obj.source == "animetoki":
+        obj.category = "sub"
+        await _show_episode_selection(obj, message)
+        return
+
     text = (
         f"**{obj.anime_title}**\n"
         f"Episodes: {len(obj.episodes)}\n\n"
@@ -218,7 +236,7 @@ async def anime_search(client, message):
             "**Anime Search**\n\n"
             "Usage: `/anime <query>`\n"
             "Example: `/anime naruto`\n\n"
-            "Then select from results to download episodes.",
+            "Then select source and episodes to download.",
         )
         return
 
@@ -232,10 +250,47 @@ async def anime_search(client, message):
         )
         return
 
-    searching_msg = await send_message(message, f"Searching for **{query}**...")
+    user_id = message.from_user.id
+    session = AnimeSession(message, user_id)
+    session.query = query
+
+    buttons = ButtonMaker()
+    buttons.data_button("AnimeWatch (aniwatch.co.at)", f"anime src aniwatch")
+    buttons.data_button("AnimeToki (animetoki.com)", f"anime src animetoki")
+    buttons.data_button("Cancel", "anime cancel", "footer")
+
+    _user_sessions[user_id] = session
+
+    msg = await send_message(
+        message,
+        f"**Select source for:** `{query}`\n\n"
+        "**AnimeWatch** — MegaCloud/MegaPlay embeds, m3u8 streams\n"
+        "**AnimeToki** — Self-hosted, direct .mkv files, 1080p",
+        buttons.build_menu(1),
+    )
+    session._reply_to = msg
+    await session._event_handler()
+
+    if session.step == "cancelled":
+        _user_sessions.pop(user_id, None)
+        return
+
+    if session.step == "source_selected":
+        await _perform_search(session)
+
+
+async def _perform_search(session):
+    query = session.query
+    searching_msg = await edit_message(
+        session._reply_to,
+        f"Searching **{query}** on {session.source}...",
+    )
 
     try:
-        results = await _anime_scraper.search(query)
+        if session.source == "animetoki":
+            results = await _animetoki_scraper.search(query)
+        else:
+            results = await _anime_scraper.search(query)
     except Exception as e:
         LOGGER.error("Anime search failed: %s", e)
         await edit_message(searching_msg, f"Search failed: {e}")
@@ -245,12 +300,9 @@ async def anime_search(client, message):
         await edit_message(searching_msg, f"No results found for **{query}**.")
         return
 
-    user_id = message.from_user.id
-    session = AnimeSession(message, user_id)
     session.results = results
-    session._reply_to = searching_msg
 
-    result_text = f"**Search Results for:** `{query}`\n\n"
+    result_text = f"**Search Results for:** `{query}` ({session.source})\n\n"
     buttons = ButtonMaker()
 
     for i, result in enumerate(results):
@@ -264,8 +316,6 @@ async def anime_search(client, message):
 
     buttons.data_button("Cancel", "anime cancel", "footer")
 
-    _user_sessions[user_id] = session
-
     await edit_message(searching_msg, result_text, buttons.build_menu(1))
     await session._event_handler()
 
@@ -276,9 +326,12 @@ async def anime_search(client, message):
 async def _start_anime_download(session):
     for ep in session.selected_eps:
         try:
-            source = await _anime_scraper.get_episode_source(
-                ep.ep_id, session.category
-            )
+            if session.source == "animetoki":
+                source = await _animetoki_scraper.get_source(ep.ep_id)
+            else:
+                source = await _anime_scraper.get_episode_source(
+                    ep.ep_id, session.category
+                )
             if not source:
                 LOGGER.warning("No source for EP%s, skipping", ep.number)
                 continue
@@ -347,8 +400,11 @@ async def _download_episode(session, ep, source):
     ydl.opts["format"] = "best"
     ydl.opts["outtmpl"] = {"default": f"{path}/{ep_name}.%(ext)s"}
     ydl.opts["writethumbnail"] = False
-    ydl.opts["downloader"] = "ffmpeg"
-    ydl.opts["downloader_args"] = {"ffmpeg": ["-hls_use_mpegts", ""]}
+
+    if source.url.endswith(".m3u8") or "/m3u8" in source.url or source.url.startswith("http"):
+        if ".m3u8" in source.url or "/m3u8" in source.url:
+            ydl.opts["downloader"] = "ffmpeg"
+            ydl.opts["downloader_args"] = {"ffmpeg": ["-hls_use_mpegts", ""]}
 
     if source.resolution:
         LOGGER.info("EP%s resolution: %s", ep.number, source.resolution)
