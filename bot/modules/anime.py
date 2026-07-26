@@ -278,10 +278,12 @@ async def anime_search(client, message):
 
 async def _perform_search(session):
     query = session.query
+    LOGGER.info("Searching '%s' on %s", query, session.source)
     searching_msg = await edit_message(
         session._reply_to,
         f"Searching **{query}** on {session.source}...",
     )
+    LOGGER.info("Searching message edited: %s", searching_msg)
 
     try:
         if session.source == "animetoki":
@@ -293,6 +295,7 @@ async def _perform_search(session):
         await edit_message(searching_msg, f"Search failed: {e}")
         return
 
+    LOGGER.info("Search returned %d results", len(results) if results else 0)
     if not results:
         await edit_message(searching_msg, f"No results found for **{query}**.")
         return
@@ -313,6 +316,7 @@ async def _perform_search(session):
 
     buttons.data_button("Cancel", "anime cancel", "footer")
 
+    LOGGER.info("Showing %d results, registering event handler", len(results))
     await edit_message(searching_msg, result_text, buttons.build_menu(1))
     await session._event_handler()
 
