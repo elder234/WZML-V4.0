@@ -271,6 +271,27 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
 
         msg += f"\n🔧 {task.engine}  •  {task.listener.mode[0]} → {task.listener.mode[1]}"
 
+        _status_labels = {
+            MirrorStatus.STATUS_DOWNLOAD: "⬇️ Downloading",
+            MirrorStatus.STATUS_UPLOAD: "⬆️ Uploading",
+            MirrorStatus.STATUS_ARCHIVE: "🗜 Zipping",
+            MirrorStatus.STATUS_EXTRACT: "📂 Extracting",
+            MirrorStatus.STATUS_SPLIT: "✂️ Splitting",
+            MirrorStatus.STATUS_SEED: "🌱 Seeding",
+            MirrorStatus.STATUS_CLONE: "📋 Cloning",
+            MirrorStatus.STATUS_QUEUEDL: "📥 Queue (DL)",
+            MirrorStatus.STATUS_QUEUEUP: "📤 Queue (UL)",
+            MirrorStatus.STATUS_PAUSED: "⏸ Paused",
+            MirrorStatus.STATUS_CHECK: "🔍 Checking",
+            MirrorStatus.STATUS_SAMVID: "🎬 SamVideo",
+            MirrorStatus.STATUS_CONVERT: "🔄 Converting",
+            MirrorStatus.STATUS_FFMPEG: "🎞 FFmpeg",
+            MirrorStatus.STATUS_METADATA: "📝 Metadata",
+            MirrorStatus.STATUS_YT: "▶️ YouTube",
+        }
+        label = _status_labels.get(tstatus, f"⬇️ {tstatus}")
+        msg += f"\n📊 {label}"
+
         from ..telegram_helper.bot_commands import BotCommands
 
         if tstatus in [
