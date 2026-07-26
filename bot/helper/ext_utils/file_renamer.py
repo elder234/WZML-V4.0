@@ -126,8 +126,8 @@ class FileRenamer:
     """Parse, enrich with metadata, and rename media files."""
 
     def __init__(self, uploader="", template=""):
-        self.uploader = uploader or "uploader"
-        self.template = template or "{title}.{year}.{resolution}.{source}.{audio}.{codec}-{uploader}.{ext}"
+        self.uploader = uploader
+        self.template = template or "{title}.{season}{episode}.{resolution}.{source}.{audio}.{codec}.{ext}"
 
     @staticmethod
     async def get_video_metadata(filepath):

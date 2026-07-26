@@ -33,6 +33,7 @@ class AnimeSession:
         self.results = []
         self.anime_slug = ""
         self.anime_title = ""
+        self.anime_id = ""
         self.episodes = []
         self.selected_eps = []
         self.category = "sub"
@@ -92,9 +93,19 @@ async def anime_callback(_, query, obj):
             obj.anime_slug = result.slug
             obj.anime_title = result.title
             obj.step = "episodes"
-            await edit_message(message, f"Loading episodes for **{result.title}**...")
+            await edit_message(message, f"Fetching details for **{result.title}**...")
             try:
-                obj.episodes = await _anime_scraper.get_episodes(result.anime_id)
+                details = await _anime_scraper.get_anime_details(result.slug)
+                if details and details.get("anime_id"):
+                    obj.anime_id = details["anime_id"]
+                    result.sub = details.get("sub", result.sub)
+                    result.dub = details.get("dub", result.dub)
+                    result.total_eps = details.get("total_eps", result.total_eps)
+                else:
+                    await edit_message(message, "Failed to fetch anime details.")
+                    obj.event.set()
+                    return
+                obj.episodes = await _anime_scraper.get_episodes(obj.anime_id)
             except Exception as e:
                 LOGGER.error("Failed to fetch episodes: %s", e)
                 await edit_message(message, f"Failed to fetch episodes: {e}")

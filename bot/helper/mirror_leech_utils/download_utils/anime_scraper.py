@@ -1,4 +1,5 @@
 from asyncio import sleep
+from base64 import b64decode
 from logging import getLogger
 from re import finditer, search, sub
 
@@ -11,19 +12,19 @@ from ...ext_utils.bot_utils import sync_to_async
 _LOGGER = getLogger(__name__)
 
 ANIWATCH_BASE = "https://aniwatch.co.at"
-MEGACLOUD_EMBED = "https://megacloud.blog"
+MEGACLOUD_EMBED = "https://embed.megastatics.com"
 MEGACLOUD_API = "https://megacloud.tv"
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "application/json, text/html, */*",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-_AJAX_HEADERS = {
+_REST_HEADERS = {
     **_HEADERS,
-    "X-Requested-With": "XMLHttpRequest",
     "Referer": ANIWATCH_BASE,
+    "Cache-Control": "no-cache",
 }
 
 _SERVER_PRIORITY = ["megacloud", "vidstreaming", "vidcloud"]
@@ -109,90 +110,171 @@ class SessionManager:
 
 
 class AniWatchScraper:
-    """Scraper for aniwatch.co.at with Cloudflare bypass."""
+    """Scraper for aniwatch.co.at WordPress REST API."""
 
     def __init__(self):
         self._sm = SessionManager()
         self._base = Config.ANIWATCH_BASE or ANIWATCH_BASE
 
-    async def search(self, query, page=1):
-        url = f"{self._base}/search?keyword={query}&page={page}"
-        html = await self._sm.fetch(url, headers=_AJAX_HEADERS)
-        if not html:
+    async def search(self, query):
+        url = f"{self._base}/wp-json/hianime/v1/search/suggestions?keyword={query}"
+        data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
+        if not data or not data.get("success") or not data.get("html"):
             return []
 
+        html = data["html"]
         results = []
-        card_pattern = (
-            r'<div class="film-detail".*?'
-            r'<h2 class="film-name">\s*<a href="/([^"]+)"[^>]*>([^<]+)</a>'
-        )
-        for match in finditer(card_pattern, html, 16):
-            slug = match.group(1)
-            title = match.group(2).strip()
-            region = html[max(0, match.start() - 1000):match.end() + 1000]
-            sub = bool(search(r'class="tick-item tick-sub"', region))
-            dub = bool(search(r'class="tick-item tick-dub"', region))
-            eps_match = search(r'class="tick-item tick-eps"[^>]*>(\d+)', region)
-            total_eps = int(eps_match.group(1)) if eps_match else 0
+
+        for match in finditer(
+            r'<a\s+href="([^"]*?/anime/([^/]+)/)"[^>]*>.*?'
+            r'<h3[^>]*class="[^"]*dynamic-name[^"]*"[^>]*>([^<]+)</h3>',
+            html,
+            16,
+        ):
+            anime_url = match.group(1)
+            slug = match.group(2)
+            title = match.group(3).strip()
+
+            region = html[max(0, match.start() - 200) : match.end() + 500]
             poster_match = search(r'data-src="([^"]+)"', region)
             poster = poster_match.group(1) if poster_match else ""
-            id_match = search(r'-(\d+)$', slug)
-            anime_id = id_match.group(1) if id_match else slug
-            results.append(AnimeSearchResult(title, slug, poster, sub, dub, total_eps, anime_id))
+
+            sub = bool(search(r'tick-sub', region))
+            dub = bool(search(r'tick-dub', region))
+            eps_match = search(r'tick-eps[^>]*>(\d+)', region)
+            total_eps = int(eps_match.group(1)) if eps_match else 0
+
+            results.append(
+                AnimeSearchResult(title, slug, poster, sub, dub, total_eps, slug)
+            )
             if len(results) >= 10:
                 break
 
+        if not results:
+            for match in finditer(
+                r'href="[^"]*?/anime/([^/]+)/"[^>]*>\s*'
+                r'<div[^>]*>.*?</div>\s*'
+                r'<div[^>]*>\s*<h3[^>]*>([^<]+)</h3>',
+                html,
+                16,
+            ):
+                slug = match.group(1)
+                title = match.group(2).strip()
+                results.append(
+                    AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                )
+                if len(results) >= 10:
+                    break
+
         return results
 
-    async def get_episodes(self, playlist_id):
-        url = f"{self._base}/ajax/v2/episode/list/{playlist_id}"
-        data = await self._sm.fetch(url, headers=_AJAX_HEADERS, as_json=True)
-        if not data or "html" not in data:
+    async def get_anime_details(self, slug):
+        url = f"{self._base}/anime/{slug}/"
+        html = await self._sm.fetch(url, headers=_HEADERS)
+        if not html:
+            return None
+
+        anime_id = None
+        id_match = search(r'data-animeid="(\d+)"', html)
+        if id_match:
+            anime_id = id_match.group(1)
+        else:
+            id_match = search(r'data-anime-id="(\d+)"', html)
+            if id_match:
+                anime_id = id_match.group(1)
+
+        sub = bool(search(r'tick-sub', html))
+        dub = bool(search(r'tick-dub', html))
+        eps_match = search(r'tick-eps[^>]*>(\d+)', html)
+        total_eps = int(eps_match.group(1)) if eps_match else 0
+
+        return {
+            "anime_id": anime_id,
+            "sub": sub,
+            "dub": dub,
+            "total_eps": total_eps,
+        }
+
+    async def get_episodes(self, anime_id):
+        url = f"{self._base}/wp-json/hianime/v1/episode/list/{anime_id}"
+        data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
+        if not data or not data.get("status") or not data.get("html"):
             return []
 
         html = data["html"]
         episodes = []
-        for match in finditer(r'data-id="(\d+)"[^>]*>([^<]*)<', html):
+
+        for match in finditer(
+            r'<a[^>]*data-id="(\d+)"[^>]*data-number="(\d+)"[^>]*>([^<]*)</a>',
+            html,
+        ):
             ep_id = match.group(1)
-            ep_text = match.group(2).strip()
-            ep_num_match = search(r'EP\s*(\d+)', ep_text, 2)
-            number = int(ep_num_match.group(1)) if ep_num_match else 0
+            number = int(match.group(2))
+            ep_text = match.group(3).strip()
             filler = "filler" in ep_text.lower()
-            episodes.append(AnimeEpisode(ep_id, number, ep_text, filler))
+            episodes.append(AnimeEpisode(ep_id, number, ep_text or f"EP{number:02d}", filler))
+
+        if not episodes:
+            for match in finditer(r'data-id="(\d+)"[^>]*>([^<]*EP\s*(\d+)[^<]*)<', html, 2):
+                ep_id = match.group(1)
+                ep_text = match.group(2).strip()
+                number = int(match.group(3))
+                filler = "filler" in ep_text.lower()
+                episodes.append(AnimeEpisode(ep_id, number, ep_text, filler))
+
+        if not episodes:
+            for match in finditer(r'data-id="(\d+)"[^>]*data-number="(\d+)"', html):
+                ep_id = match.group(1)
+                number = int(match.group(2))
+                episodes.append(AnimeEpisode(ep_id, number, f"EP{number:02d}"))
 
         episodes.sort(key=lambda e: e.number)
         return episodes
 
     async def get_servers(self, episode_id):
-        url = f"{self._base}/ajax/v2/episode/servers?episodeId={episode_id}"
-        data = await self._sm.fetch(url, headers=_AJAX_HEADERS, as_json=True)
-        if not data or "html" not in data:
+        url = f"{self._base}/wp-json/hianime/v1/episode/servers/{episode_id}"
+        data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
+        if not data or not data.get("status") or not data.get("html"):
             return []
 
         html = data["html"]
         servers = []
-        for match in finditer(r'data-type="(\w+)"[^>]*data-id="(\d+)"', html):
-            servers.append({"category": match.group(1), "server_id": match.group(2)})
+
+        for match in finditer(
+            r'data-server-name="([^"]+)"[^>]*data-hash="([^"]+)"', html
+        ):
+            server_name = match.group(1)
+            embed_hash = match.group(2)
+            try:
+                embed_url = b64decode(embed_hash).decode("utf-8")
+            except Exception:
+                continue
+            servers.append(
+                {"category": "sub", "name": server_name, "embed_url": embed_url}
+            )
+
+        if not servers:
+            for match in finditer(r'data-type="(\w+)"[^>]*data-id="(\d+)"', html):
+                servers.append(
+                    {"category": match.group(1), "server_id": match.group(2), "embed_url": None}
+                )
 
         return servers
 
-    async def get_streaming_source(self, server_id):
-        url = f"{self._base}/ajax/v2/episode/sources?id={server_id}"
-        data = await self._sm.fetch(url, headers=_AJAX_HEADERS, as_json=True)
-        if not data or "link" not in data:
-            return None
-
-        embed_url = data["link"]
+    async def get_streaming_source(self, embed_url):
         return await self._extract_megacloud(embed_url)
 
     async def _extract_megacloud(self, embed_url):
-        embed_url = sub(r"megacloud\.blog", "megacloud.tv", embed_url)
+        embed_url = sub(r"megacloud\.blog|megacloud\.tv", "embed.megastatics.com", embed_url)
 
-        html = await self._sm.fetch(embed_url, headers={
-            **_HEADERS,
-            "Referer": f"{self._base}/",
-            "Origin": self._base,
-        })
+        html = await self._sm.fetch(
+            embed_url,
+            headers={
+                **_HEADERS,
+                "Referer": f"{self._base}/",
+                "Origin": self._base,
+            },
+        )
         if not html:
             return None
 
@@ -215,11 +297,15 @@ class AniWatchScraper:
             return None
 
         api_url = f"{MEGACLOUD_API}/embed-2/v3/e-1/getSources?id={source_id}&_k={client_key}"
-        source_data = await self._sm.fetch(api_url, headers={
-            **_HEADERS,
-            "Referer": embed_url,
-            "Origin": MEGACLOUD_EMBED,
-        }, as_json=True)
+        source_data = await self._sm.fetch(
+            api_url,
+            headers={
+                **_HEADERS,
+                "Referer": embed_url,
+                "Origin": MEGACLOUD_EMBED,
+            },
+            as_json=True,
+        )
 
         if not source_data or "sources" not in source_data:
             return None
@@ -231,11 +317,13 @@ class AniWatchScraper:
         subtitles = []
         for track in source_data.get("tracks", []):
             if track.get("kind") == "captions":
-                subtitles.append({
-                    "url": track["file"],
-                    "label": track.get("label", "English"),
-                    "lang": track.get("srclang", "en"),
-                })
+                subtitles.append(
+                    {
+                        "url": track["file"],
+                        "label": track.get("label", "English"),
+                        "lang": track.get("srclang", "en"),
+                    }
+                )
 
         intro = source_data.get("intro", {})
         outro = source_data.get("outro", {})
@@ -275,23 +363,36 @@ class AniWatchScraper:
         if not servers:
             return None
 
-        category_servers = [s for s in servers if s["category"] == category]
-        if not category_servers:
-            category_servers = servers
+        if servers and servers[0].get("embed_url"):
+            for priority_name in _SERVER_PRIORITY:
+                for server in servers:
+                    if priority_name in server.get("name", "").lower():
+                        source = await self.get_streaming_source(server["embed_url"])
+                        if source:
+                            return source
+                        await sleep(0.5)
 
-        for priority_name in _SERVER_PRIORITY:
+            for server in servers:
+                source = await self.get_streaming_source(server["embed_url"])
+                if source:
+                    return source
+                await sleep(0.5)
+        else:
+            category_servers = [s for s in servers if s["category"] == category]
+            if not category_servers:
+                category_servers = servers
+
             for server in category_servers:
-                if priority_name in server.get("server_id", ""):
-                    source = await self.get_streaming_source(server["server_id"])
+                server_id = server.get("server_id")
+                if not server_id:
+                    continue
+                url = f"{self._base}/ajax/v2/episode/sources?id={server_id}"
+                data = await self._sm.fetch(url, headers=_REST_HEADERS, as_json=True)
+                if data and "link" in data:
+                    source = await self.get_streaming_source(data["link"])
                     if source:
                         return source
-                    await sleep(0.5)
-
-        for server in category_servers:
-            source = await self.get_streaming_source(server["server_id"])
-            if source:
-                return source
-            await sleep(0.5)
+                await sleep(0.5)
 
         return None
 
