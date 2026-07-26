@@ -555,6 +555,10 @@ class TelegramUploader:
                             f"While sending media group at the end of task. Error: {e}"
                         )
         if self._upload_seq:
+            # Sort by filename so episodes/parts appear in sequential order in user DM
+            self._upload_seq.sort(
+                key=lambda e: natsorted([e["file_"]])[0] if e else ""
+            )
             src_chat = self._listener.message.chat
             await self._sequence_copies(src_chat)
             self._msgs_dict = {
