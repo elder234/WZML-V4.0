@@ -5,6 +5,7 @@ from os import path as ospath
 from re import IGNORECASE, compile, search
 
 from aiofiles.os import rename as aiorename
+from aioshutil import move as aiomove
 
 _LOGGER = getLogger(__name__)
 
@@ -191,6 +192,7 @@ class FileRenamer:
         result = {
             "title": "",
             "year": "",
+            "resolution": "",
             "season": "",
             "episode": "",
             "source": "",
@@ -200,6 +202,11 @@ class FileRenamer:
             "group": "",
             "ext": ext.lstrip("."),
         }
+
+        # Extract resolution from original name before junk stripping
+        res_match = search(r"(2160p|1440p|1080p|720p|480p|360p|4k)", name, IGNORECASE)
+        if res_match:
+            result["resolution"] = res_match.group(1).upper() if res_match.group(1).upper() != "4K" else "2160p"
 
         # Strip common tags from the name for cleaner title extraction
         clean = _JUNK.sub(" ", name)
@@ -225,23 +232,27 @@ class FileRenamer:
             ep_match = search(r"(?:[-\s]|\b)(?:EP\.?|Episode\s*)(\d{1,3})", clean, IGNORECASE)
             if ep_match:
                 result["episode"] = f"E{int(ep_match.group(1)):02d}"
+            else:
+                # Try: standalone number (e.g. "06" in "Morfeusz 06 1080p")
+                num_match = search(r"(?:[-.\s]|^)(\d{1,4})(?:[-.\s]|$)", clean)
+                if num_match and 1 <= int(num_match.group(1)) <= 999:
+                    result["episode"] = f"E{int(num_match.group(1)):02d}"
 
-        # Extract source tags
-        for word in clean.split():
+        # Extract source/audio/codec from original name before junk stripping
+        orig_words = name.replace(".", " ").replace("_", " ").replace("-", " ").split()
+        for word in orig_words:
             tag = _match_tag(word, _SOURCE_TAGS)
             if tag:
                 result["source"] = tag
                 break
 
-        # Extract audio tags
-        for word in clean.split():
+        for word in orig_words:
             tag = _match_tag(word, _AUDIO_TAGS)
             if tag:
                 result["audio"] = tag
                 break
 
-        # Extract codec tags
-        for word in clean.split():
+        for word in orig_words:
             tag = _match_tag(word, _CODEC_TAGS)
             if tag:
                 result["codec"] = tag
@@ -363,7 +374,7 @@ class FileRenamer:
             new_path = ospath.join(dirpath, new_name)
 
         try:
-            await aiorename(filepath, new_path)
+            await aiomove(filepath, new_path)
             _LOGGER.info(f"Renamer: {filename} -> {new_name}")
             return new_path, new_name
         except Exception as e:

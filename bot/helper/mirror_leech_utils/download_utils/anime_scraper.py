@@ -14,6 +14,7 @@ _LOGGER = getLogger(__name__)
 ANIWATCH_BASE = "https://aniwatch.co.at"
 MEGACLOUD_EMBED = "https://embed.megastatics.com"
 MEGACLOUD_API = "https://megacloud.tv"
+MEGAPLAY_API = "https://megaplay.buzz"
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -27,7 +28,7 @@ _REST_HEADERS = {
     "Cache-Control": "no-cache",
 }
 
-_SERVER_PRIORITY = ["megacloud", "vidstreaming", "vidcloud"]
+_SERVER_PRIORITY = ["megaplay", "vidsrc", "megacloud", "vidstreaming", "vidcloud"]
 
 
 class AnimeSearchResult:
@@ -271,7 +272,66 @@ class AniWatchScraper:
         return servers
 
     async def get_streaming_source(self, embed_url):
+        if "megaplay" in embed_url or "1anime.site/megaplay" in embed_url:
+            return await self._extract_megaplay(embed_url)
         return await self._extract_megacloud(embed_url)
+
+    async def _extract_megaplay(self, embed_url):
+        ep_id_match = search(r'/s-2/(\d+)', embed_url)
+        if not ep_id_match:
+            _LOGGER.error("Could not extract episode ID from megaplay URL: %s", embed_url)
+            return None
+
+        ep_id = ep_id_match.group(1)
+        api_url = f"{MEGAPLAY_API}/stream/getSources?id={ep_id}"
+
+        source_data = await self._sm.fetch(
+            api_url,
+            headers={
+                **_HEADERS,
+                "Referer": f"{MEGAPLAY_API}/",
+                "Origin": MEGAPLAY_API,
+            },
+            as_json=True,
+        )
+
+        if not source_data or "sources" not in source_data:
+            _LOGGER.error("Megaplay API returned no sources for %s: %s", ep_id, source_data)
+            return None
+
+        sources = source_data["sources"]
+        m3u8_url = sources["file"] if isinstance(sources, dict) else sources[0]["file"]
+        if not m3u8_url:
+            return None
+
+        subtitles = []
+        for track in source_data.get("tracks", []):
+            if track.get("kind") == "captions":
+                subtitles.append(
+                    {
+                        "url": track["file"],
+                        "label": track.get("label", "English"),
+                        "lang": track.get("srclang", "en"),
+                    }
+                )
+
+        intro = source_data.get("intro", {})
+        outro = source_data.get("outro", {})
+        intro_skip = (intro.get("end", 0) - intro.get("start", 0)) if intro else None
+        outro_skip = (outro.get("end", 0) - outro.get("start", 0)) if outro else None
+
+        _LOGGER.info("Megaplay source resolved: %s", m3u8_url[:80])
+
+        return EpisodeSource(
+            url=m3u8_url,
+            headers={
+                "Referer": f"{MEGAPLAY_API}/",
+                "User-Agent": _HEADERS["User-Agent"],
+            },
+            subtitles=subtitles,
+            intro_skip=intro_skip,
+            outro_skip=outro_skip,
+        )
 
     async def _extract_megacloud(self, embed_url):
         embed_url = sub(r"megacloud\.blog|megacloud\.tv", "embed.megastatics.com", embed_url)
