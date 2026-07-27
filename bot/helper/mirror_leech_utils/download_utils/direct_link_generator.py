@@ -2627,13 +2627,13 @@ def real_debrid_torrent(magnet_or_path: str) -> dict:
             return True
         return False
 
-    selected_ids = [str(f["id"]) for f in all_files if _is_real_content(f.get("path", ""))]
+    selected_ids = [str(f["id"]) for f in all_files if _is_real_content(f.get("path") or "")]
 
     # Fallback: if filter removes everything, select all video files
     if not selected_ids:
         selected_ids = [
             str(f["id"]) for f in all_files
-            if any(f.get("path", "").lower().endswith(ext) for ext in _VIDEO_EXTS)
+            if any((f.get("path") or "").lower().endswith(ext) for ext in _VIDEO_EXTS)
         ]
     # Final fallback: select everything
     if not selected_ids:

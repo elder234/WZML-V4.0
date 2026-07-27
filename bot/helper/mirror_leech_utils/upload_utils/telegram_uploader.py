@@ -305,6 +305,11 @@ class TelegramUploader:
     async def _copy_media(self):
         try:
             if self._bot_pm:
+                if self._sent_msg is None or self._sent_msg.chat is None:
+                    LOGGER.warning(
+                        "BotPM copy skipped: sent message or chat is None"
+                    )
+                    return
                 await _call_with_flood_retry(
                     TgClient.bot.copy_message,
                     chat_id=self._listener.user_id,
@@ -316,7 +321,7 @@ class TelegramUploader:
                 )
         except Exception as err:
             if not self._listener.is_cancelled:
-                err_msg = str(err)
+                err_msg = str(err) or repr(err)
                 if "Can't copy" in err_msg:
                     LOGGER.warning(
                         f"BotPM copy skipped (restricted content): {err_msg}"
@@ -390,7 +395,7 @@ class TelegramUploader:
                     )
                 except Exception as err:
                     if not self._listener.is_cancelled:
-                        err_msg = str(err)
+                        err_msg = str(err) or repr(err)
                         if "Can't copy" in err_msg:
                             LOGGER.warning(
                                 f"BotPM copy skipped (restricted content): {err_msg}"

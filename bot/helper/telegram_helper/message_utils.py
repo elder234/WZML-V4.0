@@ -55,6 +55,11 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
                         photo = None
                 if photo is None:
                     if isinstance(message, Message):
+                        if message.chat is None:
+                            LOGGER.warning(
+                                "send_message: message.chat is None (photo path), skipping"
+                            )
+                            return None
                         return await message.reply(
                             text=text,
                             reply_parameters=ReplyParameters(message_id=message.id),
@@ -71,6 +76,11 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
                         reply_markup=buttons,
                     )
                 if isinstance(message, Message):
+                    if message.chat is None:
+                        LOGGER.warning(
+                            "send_message: message.chat is None (reply_photo), skipping"
+                        )
+                        return None
                     return await message.reply_photo(
                         photo=photo,
                         caption=text,
@@ -122,6 +132,12 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
                 LOGGER.error("Error while sending photo", exc_info=True)
                 return
         if isinstance(message, Message):
+            if message.chat is None:
+                LOGGER.warning(
+                    "send_message: message.chat is None, skipping reply "
+                    f"(text={text[:50]!r}...)"
+                )
+                return None
             return await message.reply(
                 text=text,
                 reply_parameters=ReplyParameters(message_id=message.id),
@@ -163,6 +179,9 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
 
 async def edit_message(message, text, buttons=None, block=True, photo=None):
     try:
+        if message is None:
+            LOGGER.warning("edit_message: message is None, skipping")
+            return None
         if message.media:
             if photo:
                 if photo == "IMAGES":
@@ -433,6 +452,9 @@ async def update_status_message(sid, force=False):
 
 async def send_status_message(msg, user_id=0):
     if intervals["stopAll"]:
+        return
+    if isinstance(msg, Message) and msg.chat is None:
+        LOGGER.warning("send_status_message: msg.chat is None, skipping")
         return
     sid = user_id or msg.chat.id
     is_user = bool(user_id)
