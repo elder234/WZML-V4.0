@@ -44,6 +44,7 @@ class AnimeSession:
         self.anime_slug = ""
         self.anime_title = ""
         self.anime_id = ""
+        self.year = ""
         self.episodes = []
         self.selected_eps = []
         self.category = "sub"
@@ -119,6 +120,7 @@ async def anime_callback(_, query, obj):
             result = obj.results[idx]
             obj.anime_slug = result.slug
             obj.anime_title = result.title
+            obj.year = getattr(result, "year", "") or ""
             obj.step = "episodes"
             await edit_message(message, f"Fetching details for **{result.title}**...")
             try:
@@ -404,6 +406,7 @@ async def _download_episode(session, ep, source):
         "title": session.anime_title,
         "season": "",
         "episode": f"E{ep.number:02d}",
+        "year": getattr(session, "year", "") or "",
     }
     if source.resolution:
         db_metadata["resolution"] = source.resolution
@@ -416,6 +419,7 @@ async def _download_episode(session, ep, source):
         if info:
             db_metadata["title"] = info.get("title") or session.anime_title
             db_metadata["episode_title"] = info.get("episode_title", "")
+            db_metadata["year"] = info.get("year") or db_metadata["year"]
             LOGGER.info(
                 "AniList EP%s: title=%s, ep_title=%s",
                 ep.number, db_metadata["title"], db_metadata["episode_title"],

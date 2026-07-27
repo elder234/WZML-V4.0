@@ -40,9 +40,9 @@ _SERVER_PRIORITY = ["megaplay", "1anime", "vidsrc", "megacloud", "vidstreaming",
 
 
 class AnimeSearchResult:
-    __slots__ = ("title", "slug", "poster", "sub", "dub", "total_eps", "anime_id")
+    __slots__ = ("title", "slug", "poster", "sub", "dub", "total_eps", "anime_id", "year")
 
-    def __init__(self, title, slug, poster, sub, dub, total_eps, anime_id):
+    def __init__(self, title, slug, poster, sub, dub, total_eps, anime_id, year=""):
         self.title = title
         self.slug = slug
         self.poster = poster
@@ -50,6 +50,7 @@ class AnimeSearchResult:
         self.dub = dub
         self.total_eps = total_eps
         self.anime_id = anime_id
+        self.year = year
 
     def __str__(self):
         flags = []
@@ -269,7 +270,7 @@ class AniWatchScraper:
             total_eps = int(eps_match.group(1)) if eps_match else 0
 
             results.append(
-                AnimeSearchResult(title, slug, poster, sub, dub, total_eps, slug)
+                AnimeSearchResult(title, slug, poster, sub, dub, total_eps, slug, year="")
             )
             if len(results) >= 10:
                 break
@@ -285,7 +286,7 @@ class AniWatchScraper:
                 slug = match.group(1)
                 title = match.group(2).strip()
                 results.append(
-                    AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                    AnimeSearchResult(title, slug, "", True, True, 0, slug, year="")
                 )
                 if len(results) >= 10:
                     break
@@ -746,7 +747,7 @@ class AnimeTokiScraper:
                 continue
             slug = href.rstrip("/").split("/")[-1]
             results.append(
-                AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                AnimeSearchResult(title, slug, "", True, True, 0, slug, year="")
             )
             if len(results) >= 10:
                 break
@@ -765,7 +766,7 @@ class AnimeTokiScraper:
                 if slug in ("", "tag", "category", "page"):
                     continue
                 results.append(
-                    AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                    AnimeSearchResult(title, slug, "", True, True, 0, slug, year="")
                 )
                 if len(results) >= 10:
                     break
@@ -992,7 +993,7 @@ class CloudDriveScraper:
                 continue
             slug = href.rstrip("/").split("/")[-1]
             results.append(
-                AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                AnimeSearchResult(title, slug, "", True, True, 0, slug, year="")
             )
             if len(results) >= 10:
                 break
@@ -1011,7 +1012,7 @@ class CloudDriveScraper:
                 if slug in ("", "tag", "category", "page"):
                     continue
                 results.append(
-                    AnimeSearchResult(title, slug, "", True, True, 0, slug)
+                    AnimeSearchResult(title, slug, "", True, True, 0, slug, year="")
                 )
                 if len(results) >= 10:
                     break
@@ -1247,6 +1248,7 @@ async def anilist_episode_info(anilist_id, episode):
     query ($id: Int, $episode: Int) {
         Media(id: $id, type: ANIME) {
             title { english romaji }
+            seasonYear
             episodes
             streamingEpisodes {
                 title
@@ -1281,6 +1283,7 @@ async def anilist_episode_info(anilist_id, episode):
                     "romaji": title.get("romaji", ""),
                     "total_episodes": media.get("episodes", 0),
                     "episode_title": ep_title,
+                    "year": str(media.get("seasonYear", "")),
                 }
         except Exception as e:
             _LOGGER.warning("AniList episode info failed: %s", e)
@@ -1457,6 +1460,7 @@ class HianimeScraper:
                     dub=dub,
                     total_eps=total_eps,
                     anime_id=anime_id,
+                    year="",
                 )
             )
             if len(results) >= 10:

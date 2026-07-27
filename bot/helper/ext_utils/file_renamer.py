@@ -131,7 +131,7 @@ class FileRenamer:
 
     def __init__(self, uploader="", template=""):
         self.uploader = uploader
-        self.template = template or "{title}.{season}{episode}.{resolution}.{source}.{audio}.{codec}.{ext}"
+        self.template = template or "{title}.{year}.{season}{episode}.{resolution}.{source}.{audio}.{codec}.{ext}"
 
     @staticmethod
     async def get_video_metadata(filepath):
