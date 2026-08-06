@@ -12,6 +12,7 @@ from typing import BinaryIO, Callable, Optional, Union
 
 from pyrogram import Client, StopTransmission, raw
 from pyrogram.errors import RPCError
+from pyrogram.session.internals.data_center import DataCenter
 
 log = logging.getLogger(__name__)
 
@@ -281,6 +282,9 @@ async def _save_file_patched(
 
 
 def apply_save_file_patch():
+    DataCenter.PROD_MEDIA = {}
+    DataCenter.PROD_IPV6_MEDIA = {}
+    log.warning("Patched media sessions to use main DC addresses")
     if getattr(Client.save_file, "_wzmlx_patched", False):
         return
     Client.save_file = _save_file_patched

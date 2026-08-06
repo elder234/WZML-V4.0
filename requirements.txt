@@ -25,7 +25,7 @@ psutil
 pycountry
 pycryptodomex
 pymongo
-wzgram==3.0.26
+wzgram
 python-magic
 pytz
 qbittorrent-api
