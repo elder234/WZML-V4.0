@@ -111,6 +111,8 @@ class Config:
     RENAME_UPLOADER = ""
     RENAME_TEMPLATE = "{title}.{year}.{season}{episode}.{resolution}.{source}.{audio}.{codec}.{ext}"
     RENAME_ENABLED = False
+    MAX_CONCURRENT_UPLOADS = 0
+    MAX_CONCURRENT_EPISODES = 0
     OWNER_ID = 0
     QUEUE_ALL = 0
     QUEUE_DOWNLOAD = 0

@@ -490,7 +490,10 @@ class TelegramUploader:
         all_upload_files.sort(key=lambda x: x[0], reverse=True)
 
         # Limit concurrent uploads to reduce CPU/memory pressure
-        _upload_sem = Semaphore(3)
+        # Default scales to the number of helper bots so every bot uploads in parallel.
+        up_clients = len(TgClient.helper_bots)
+        max_concurrent = Config.MAX_CONCURRENT_UPLOADS or (up_clients or 3)
+        _upload_sem = Semaphore(max(1, max_concurrent))
 
         for f_size, file_, f_path, dirpath in all_upload_files:
             if self._listener.is_cancelled:

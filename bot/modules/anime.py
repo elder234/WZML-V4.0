@@ -1,4 +1,4 @@
-from asyncio import Event, wait_for
+from asyncio import Event, Semaphore, ensure_future, gather, sleep, wait_for
 from functools import partial
 from time import time
 
@@ -34,6 +34,8 @@ _clouddrive_scraper = CloudDriveScraper()
 _hianime_scraper = HianimeScraper()
 
 _user_sessions = {}
+
+_ANIME_MAX_ATTEMPTS = 3
 
 
 class AnimeSession:
@@ -76,10 +78,13 @@ class AnimeSession:
 
 
 class AnimeTask(TaskListener):
-    def __init__(self, client, message):
+    def __init__(self, client, message, task_id=None):
         self.message = message
         self.client = client
         super().__init__()
+        if task_id:
+            self.mid = task_id
+            self.dir = f"{DOWNLOAD_DIR}{task_id}"
         self.is_leech = False
         self.is_cancelled = False
         self._is_anime = True
@@ -350,43 +355,72 @@ async def _perform_search(session):
 
 
 async def _start_anime_download(session):
-    for ep in session.selected_eps:
-        try:
-            if session.source == "animetoki":
-                source = await _animetoki_scraper.get_source(ep.ep_id)
-            elif session.source == "clouddrive":
-                source = await _clouddrive_scraper.get_source(ep.ep_id)
-            elif session.source == "hianime":
-                source = await _hianime_scraper.get_episode_source(
-                    ep.ep_id, session.category
-                )
-            else:
-                source = await _anime_scraper.get_episode_source(
-                    ep.ep_id, session.category
-                )
-            if not source:
-                LOGGER.warning("No source for EP%s, skipping", ep.number)
-                continue
-
-            await _download_episode(session, ep, source)
-
-        except Exception as e:
-            LOGGER.error("Failed to download EP%s: %s", ep.number, e)
-
-    await send_message(
-        session.message,
-        f"Finished processing **{session.anime_title}** "
-        f"({len(session.selected_eps)} episodes).",
+    concurrency = Config.MAX_CONCURRENT_EPISODES or (
+        len(TgClient.helper_bots) or 3
     )
+    sem = Semaphore(max(1, concurrency))
+    failed_eps = []
+
+    async def _process_episode(ep):
+        async with sem:
+            source = None
+            for attempt in range(1, _ANIME_MAX_ATTEMPTS + 1):
+                try:
+                    source = await _fetch_source(session, ep)
+                    if source:
+                        break
+                    LOGGER.warning(
+                        "No source for EP%s, attempt %s/%s",
+                        ep.number, attempt, _ANIME_MAX_ATTEMPTS,
+                    )
+                except Exception as e:
+                    LOGGER.warning(
+                        "Source fetch failed EP%s attempt %s/%s: %s",
+                        ep.number, attempt, _ANIME_MAX_ATTEMPTS, e,
+                    )
+                if attempt < _ANIME_MAX_ATTEMPTS:
+                    await sleep(3 * attempt)
+            if not source:
+                LOGGER.error("No source for EP%s after %s attempts", ep.number, _ANIME_MAX_ATTEMPTS)
+                failed_eps.append(ep.number)
+                return
+
+            task_id = f"{session.message.id}_{int(session._time)}_{ep.number}"
+            if not await _download_episode(session, ep, source, task_id):
+                failed_eps.append(ep.number)
+
+    tasks = [ensure_future(_process_episode(ep)) for ep in session.selected_eps]
+    await gather(*tasks)
+
+    msg = (
+        f"Finished processing **{session.anime_title}** "
+        f"({len(session.selected_eps)} episodes)."
+    )
+    if failed_eps:
+        failed_str = ", ".join(f"EP{n}" for n in failed_eps)
+        msg += f"\nFailed episodes: {failed_str}"
+    await send_message(session.message, msg)
 
     if session.user_id in _user_sessions:
         del _user_sessions[session.user_id]
 
 
-async def _download_episode(session, ep, source):
+async def _fetch_source(session, ep):
+    if session.source == "animetoki":
+        return await _animetoki_scraper.get_source(ep.ep_id)
+    elif session.source == "clouddrive":
+        return await _clouddrive_scraper.get_source(ep.ep_id)
+    elif session.source == "hianime":
+        return await _hianime_scraper.get_episode_source(
+            ep.ep_id, session.category
+        )
+    return await _anime_scraper.get_episode_source(ep.ep_id, session.category)
+
+
+async def _download_episode(session, ep, source, task_id):
     ep_name = f"{session.anime_title} - EP{ep.number:02d}"
 
-    listener = AnimeTask(TgClient.bot, session.message)
+    listener = AnimeTask(TgClient.bot, session.message, task_id=task_id)
     listener.link = source.url
     listener.name = ep_name
     listener.is_leech = True
@@ -437,7 +471,7 @@ async def _download_episode(session, ep, source):
             await listener.on_download_error(str(e))
         except Exception:
             pass
-        return
+        return False
 
     LOGGER.info(
         "After before_start: dir=%s, name=%s, up_dest=%s, "
@@ -447,8 +481,7 @@ async def _download_episode(session, ep, source):
     )
 
     if session.source == "clouddrive":
-        await _download_cloud_drive(listener, ep, source, ep_name)
-        return
+        return await _download_cloud_drive(listener, ep, source, ep_name)
 
     path = f"{DOWNLOAD_DIR}{listener.mid}/"
 
@@ -467,13 +500,18 @@ async def _download_episode(session, ep, source):
 
     try:
         await ydl.add_download(path, "best", False, {})
-        LOGGER.info("add_download returned for EP%s", ep.number)
+        if listener.is_cancelled:
+            LOGGER.warning("EP%s download cancelled/failed", ep.number)
+            return False
+        LOGGER.info("add_download completed for EP%s", ep.number)
+        return True
     except Exception as e:
         LOGGER.error("YT-DLP download failed for EP%s: %s", ep.number, e)
         try:
             await listener.on_download_error(str(e))
         except Exception:
             pass
+        return False
 
 
 async def _download_cloud_drive(listener, ep, source, ep_name):
@@ -498,7 +536,7 @@ async def _download_cloud_drive(listener, ep, source, ep_name):
             await listener.on_download_error("CloudDrive download failed")
         except Exception:
             pass
-        return
+        return False
 
     listener.name = filename
     listener.is_file = True
@@ -506,5 +544,7 @@ async def _download_cloud_drive(listener, ep, source, ep_name):
     LOGGER.info("CloudDrive download complete for EP%s, triggering upload", ep.number)
     try:
         await listener.on_download_complete()
+        return True
     except Exception as e:
         LOGGER.error("on_download_complete failed for CloudDrive EP%s: %s", ep.number, e)
+        return False

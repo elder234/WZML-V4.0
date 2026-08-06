@@ -24,14 +24,11 @@ DEBRID_LINK_API = ""
 # 1. Generate a 32-char key: python3 -c "import secrets,string; a=string.ascii_letters+string.digits; print(''.join(secrets.choice(a) for _ in range(32)))"
 # 2. Deploy worker/alphadebrid-worker.js to Cloudflare Workers
 # 3. Add two secrets on the worker: API_KEY (same key below) and RD_TOKEN (your RD token from real-debrid.com/apitoken)
-CF_WORKER_URL = ""  # e.g. "alphadebrid.yourname.workers.dev"
+CF_WORKER_URL = ""  # e.g. "alphadebrid.yourname.workers.dev" (comma-separated for multiple)
 CF_WORKER_KEY = ""  # 32-char key shared with the worker
 
 # Real-Debrid (get token from https://real-debrid.com/apitoken)
 REAL_DEBRID_API = ""
-# Cloudflare Worker for proxying Real-Debrid links
-CF_WORKER_URL = ""   # e.g. "alphadebrid.youraccount.workers.dev"
-CF_WORKER_KEY = ""   # 32-char AES key (must match the API_KEY secret on the worker)
 # Debrid-Link
 DEBRID_LINK_API = ""
 EXCLUDED_EXTENSIONS = ""
@@ -193,6 +190,21 @@ LEECH_SUFFIX = ""
 LEECH_FONT = ""
 LEECH_CAPTION = ""
 THUMBNAIL_LAYOUT = ""
+
+# Anime (custom mirror/leech feature)
+ANIWATCH_BASE = "https://aniwatch.co.at"  # aniwatch.co.at site base
+ANIME_TOKI_BASE = ""  # animetoki.com site base
+ANIME_DEFAULT_CATEGORY = "sub"  # sub or dub
+TMDB_API_KEY = ""  # TMDB API key for anime metadata enrichment
+
+# Autonomous rename pipeline (used by anime leech and -rn flag)
+RENAME_ENABLED = False
+RENAME_TEMPLATE = "{title}.{year}.{season}{episode}.{resolution}.{source}.{audio}.{codec}.{ext}"
+RENAME_UPLOADER = ""
+
+# Concurrency
+MAX_CONCURRENT_UPLOADS = 0  # Max parallel Telegram file uploads per task. 0 = auto (helper bot count)
+MAX_CONCURRENT_EPISODES = 0  # Max anime episodes processed in parallel. 0 = auto (helper bot count)
 
 # Log Channels
 LEECH_DUMP_CHAT = ""
