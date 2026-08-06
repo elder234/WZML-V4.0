@@ -135,6 +135,53 @@ async def _stop_or_timeout(value, msg, h, c, pyro_client=None):
     return False
 
 
+async def _collect_credentials(user_id, message, h, btns):
+    sess_msg = await send_message(
+        message,
+        f"{h}\n┃\n"
+        "┃ <i>Send your <code>API_ID</code> (also known as <code>APP_ID</code>).</i>\n"
+        "┃ <i>Get it from <a href='https://my.telegram.org'>my.telegram.org</a>.</i>\n"
+        "┃\n"
+        f"┖ <b>Timeout:</b> <code>{get_readable_time(_TIMEOUT)}</code>",
+        btns,
+    )
+
+    api_id = await _invoke(user_id)
+    if await _stop_or_timeout(api_id, sess_msg, h, ""):
+        return None, None, None, sess_msg
+
+    try:
+        api_id = int(api_id)
+    except ValueError:
+        await edit_message(
+            sess_msg, _error_msg(h, "", "<i><code>APP_ID</code> is Invalid.</i>")
+        )
+        return None, None, None, sess_msg
+
+    c = _collected(api_id=api_id)
+    await edit_message(
+        sess_msg,
+        f"{h}\n\n{c}\n\n"
+        "┃ <i>Send your <code>API_HASH</code>.</i>\n"
+        "┃ <i>Get it from <a href='https://my.telegram.org'>my.telegram.org</a>.</i>\n"
+        "┃\n"
+        f"┖ <b>Timeout:</b> <code>{get_readable_time(_TIMEOUT)}</code>",
+        btns,
+    )
+
+    api_hash = await _invoke(user_id)
+    if await _stop_or_timeout(api_hash, sess_msg, h, c):
+        return None, None, None, sess_msg
+    if len(api_hash) <= 30:
+        await edit_message(
+            sess_msg, _error_msg(h, c, "<i><code>API_HASH</code> is Invalid.</i>")
+        )
+        return None, None, None, sess_msg
+
+    c = _collected(api_id=api_id, api_hash=api_hash)
+    return sess_msg, api_id, api_hash, c
+
+
 @new_task
 async def gen_pyro_string(_, message):
     if message.chat.type != ChatType.PRIVATE:
@@ -148,58 +195,32 @@ async def gen_pyro_string(_, message):
     api_id = Config.TELEGRAM_API
     api_hash = Config.TELEGRAM_HASH
 
-    if not api_id or not api_hash:
+    if api_id and api_hash:
+        c = _collected(api_id=api_id, api_hash=api_hash)
         sess_msg = await send_message(
             message,
-            f"{h}\n┃\n"
-            "┃ <i>Send your <code>API_ID</code> (also known as <code>APP_ID</code>).</i>\n"
-            "┃ <i>Get it from <a href='https://my.telegram.org'>my.telegram.org</a>.</i>\n"
-            "┃\n"
-            f"┖ <b>Timeout:</b> <code>{get_readable_time(_TIMEOUT)}</code>",
+            f"{h}\n┃\n{c}\n┃\n"
+            "┃ <i>Bot config has <b>API_ID</b> &amp; <b>API_HASH</b> set.</i>\n"
+            "┃ <i>Use them or enter new ones?</i>\n"
+            "┖ <b>Send:</b> <code>y</code>/<code>yes</code> = use config | "
+            "<code>n</code>/<code>no</code> = enter new",
             btns,
         )
-
-        api_id = await _invoke(user_id)
-        if await _stop_or_timeout(api_id, sess_msg, h, ""):
+        choice = await _invoke(user_id)
+        if await _stop_or_timeout(choice, sess_msg, h, c):
             return
-
-        try:
-            api_id = int(api_id)
-        except ValueError:
-            return await edit_message(
-                sess_msg, _error_msg(h, "", "<i><code>APP_ID</code> is Invalid.</i>")
+        if choice.lower() not in ("y", "yes"):
+            sess_msg, api_id, api_hash, c = await _collect_credentials(
+                user_id, message, h, btns
             )
-
-        c = _collected(api_id=api_id)
-        await edit_message(
-            sess_msg,
-            f"{h}\n\n{c}\n\n"
-            "┃ <i>Send your <code>API_HASH</code>.</i>\n"
-            "┃ <i>Get it from <a href='https://my.telegram.org'>my.telegram.org</a>.</i>\n"
-            "┃\n"
-            f"┖ <b>Timeout:</b> <code>{get_readable_time(_TIMEOUT)}</code>",
-            btns,
-        )
-
-        api_hash = await _invoke(user_id)
-        if await _stop_or_timeout(api_hash, sess_msg, h, c):
-            return
-        if len(api_hash) <= 30:
-            return await edit_message(
-                sess_msg, _error_msg(h, c, "<i><code>API_HASH</code> is Invalid.</i>")
-            )
-
-        c = _collected(api_id=api_id, api_hash=api_hash)
+            if api_id is None:
+                return
     else:
-        sess_msg = await send_message(
-            message,
-            f"{h}\n┃\n"
-            f"┃ <i>Using <b>API_ID</b> &amp; <b>API_HASH</b> from bot config.</i>\n"
-            "┃\n"
-            f"┖ <b>Timeout:</b> <code>{get_readable_time(_TIMEOUT)}</code>",
-            btns,
+        sess_msg, api_id, api_hash, c = await _collect_credentials(
+            user_id, message, h, btns
         )
-        c = _collected(api_id=api_id, api_hash=api_hash)
+        if api_id is None:
+            return
 
     while True:
         await edit_message(
