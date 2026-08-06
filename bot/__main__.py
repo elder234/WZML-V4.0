@@ -40,6 +40,10 @@ _clean_task = None
 async def main():
     from asyncio import gather
 
+    from pyrogram import __version__ as pyrogram_version
+
+    LOGGER.info(f"Running with pyrogram/wzgram version: {pyrogram_version}")
+
     from .core.startup import (
         load_configurations,
         load_settings,
