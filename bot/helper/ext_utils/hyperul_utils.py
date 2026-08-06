@@ -1,6 +1,5 @@
-from asyncio import ensure_future, sleep
+from asyncio import sleep
 from re import sub as re_sub
-from time import time
 
 from PIL import Image
 from pyrogram import StopTransmission
@@ -26,21 +25,17 @@ from ..ext_utils.media_utils import (
     get_video_thumbnail,
 )
 
-_UPLOAD_STALL_TIMEOUT = 120
-
 
 class HypertgUpload(HypertgTransfer):
     def __init__(self, obj):
         super().__init__(obj)
         self._up_file = ""
         self._file_progress = {}
-        self._file_progress_time = {}
 
     async def _progress(self, current, total, file_path):
         if self._listener.is_cancelled:
             raise StopTransmission()
         self._file_progress[file_path] = current
-        self._file_progress_time[file_path] = time()
         self._obj._processed_bytes = sum(self._file_progress.values())
 
     async def upload(
@@ -185,49 +180,13 @@ class HypertgUpload(HypertgTransfer):
                 except Exception:
                     pass
 
-    async def _send_with_watchdog(self, send_func, **kwargs):
-        file_path = (kwargs.get("progress_args") or (None,))[0]
-        task = ensure_future(send_func(**kwargs))
-        start = time()
-        try:
-            while not task.done():
-                last_progress = self._file_progress_time.get(file_path)
-                ref = last_progress or start
-                if time() - ref > _UPLOAD_STALL_TIMEOUT:
-                    task.cancel()
-                    raise TimeoutError(
-                        f"Upload stalled (no progress for {_UPLOAD_STALL_TIMEOUT}s): "
-                        f"{ospath.basename(file_path) if file_path else 'unknown'}"
-                    )
-                await sleep(10)
-            return task.result()
-        except (StopTransmission, TimeoutError):
-            if not task.done():
-                task.cancel()
-            raise
-        except BaseException:
-            if not task.done():
-                task.cancel()
-            raise
-
     async def _send_with_retry(self, send_func, **kwargs):
-        attempts = 0
         while True:
             try:
-                return await self._send_with_watchdog(send_func, **kwargs)
-            except StopTransmission:
-                raise
+                return await send_func(**kwargs)
             except (FloodWait, FloodPremiumWait) as f:
                 LOGGER.warning(f"HypertgUL flood {f.value}s on {self._up_file}")
                 await sleep(f.value + 1)
-            except TimeoutError:
-                attempts += 1
-                if attempts >= 3:
-                    raise
-                LOGGER.warning(
-                    f"HypertgUL upload timed out, retrying {attempts}/3 on {self._up_file}"
-                )
-                await sleep(5 * attempts)
 
     async def _try_send(self, key, client, kwargs):
         try:

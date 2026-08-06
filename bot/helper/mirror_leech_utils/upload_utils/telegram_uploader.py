@@ -48,18 +48,6 @@ async def _call_with_flood_retry(method, *args, **kwargs):
             await sleep(f.value + 1)
 
 
-_upload_sem = None
-
-
-def _get_upload_sem():
-    global _upload_sem
-    if _upload_sem is None:
-        up_clients = len(TgClient.helper_bots)
-        max_concurrent = Config.MAX_CONCURRENT_UPLOADS or (up_clients or 3)
-        _upload_sem = Semaphore(max(1, max_concurrent))
-    return _upload_sem
-
-
 class TelegramUploader:
     def __init__(self, listener, path):
         self._processed_bytes = 0
@@ -501,9 +489,8 @@ class TelegramUploader:
         # Sort by size descending — largest files upload first
         all_upload_files.sort(key=lambda x: x[0], reverse=True)
 
-        # Limit concurrent uploads process-wide so concurrent anime episodes
-        # don't multiply the per-bot connection count and trigger throttling.
-        _upload_sem = _get_upload_sem()
+        # Limit concurrent uploads to reduce CPU/memory pressure
+        _upload_sem = Semaphore(3)
 
         for f_size, file_, f_path, dirpath in all_upload_files:
             if self._listener.is_cancelled:
