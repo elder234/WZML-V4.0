@@ -181,12 +181,23 @@ class HypertgUpload(HypertgTransfer):
                     pass
 
     async def _send_with_retry(self, send_func, **kwargs):
+        attempts = 0
         while True:
             try:
                 return await send_func(**kwargs)
+            except StopTransmission:
+                raise
             except (FloodWait, FloodPremiumWait) as f:
                 LOGGER.warning(f"HypertgUL flood {f.value}s on {self._up_file}")
                 await sleep(f.value + 1)
+            except TimeoutError:
+                attempts += 1
+                if attempts >= 3:
+                    raise
+                LOGGER.warning(
+                    f"HypertgUL upload timed out, retrying {attempts}/3 on {self._up_file}"
+                )
+                await sleep(5 * attempts)
 
     async def _try_send(self, key, client, kwargs):
         try:
