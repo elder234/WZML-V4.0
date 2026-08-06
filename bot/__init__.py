@@ -146,3 +146,7 @@ sabnzbd_client = SabnzbdClient(
 )
 
 scheduler = AsyncIOScheduler(event_loop=bot_loop)
+
+from .helper.ext_utils.fix_save_file import apply_save_file_patch
+
+apply_save_file_patch()
